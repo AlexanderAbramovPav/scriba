@@ -1,0 +1,24 @@
+# Auto-bootstrap venv (~1.3 GB, recreated by `transcribe.sh --bootstrap`)
+.venv/
+
+# Python bytecode and caches
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# macOS / editor cruft
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Per-run transcription artifacts (transient, not source).
+# Apply to any output anywhere in the tree — these are normally produced next to the
+# user's input files, but might leak in during local testing.
+*.transcript.md
+*.transcript.log
+*.transcript.progress.json
+*.transcript.media/
