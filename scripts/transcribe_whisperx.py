@@ -132,6 +132,8 @@ def main() -> int:
     ap.add_argument("--audio", required=True, help="path to 16kHz mono WAV")
     ap.add_argument("--output", required=True, help="path to write result JSON")
     ap.add_argument("--model", default="large-v3")
+    ap.add_argument("--asr", default="whisperx", choices=["whisperx", "gigaam"],
+                    help="ASR backend. gigaam = Russian-optimized (sherpa-onnx), opt-in.")
     ap.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
     ap.add_argument("--language", default=None)
     ap.add_argument("--batch-size", type=int, default=1,
@@ -146,60 +148,93 @@ def main() -> int:
                     help='comma list "Name=clip.wav" to match known voices')
     args = ap.parse_args()
 
-    compute_type = "int8" if args.device == "cpu" else "float16"
-    log(f"loading model {args.model} (device={args.device}, compute_type={compute_type})")
-    model = whisperx.load_model(
-        args.model,
-        device=args.device,
-        compute_type=compute_type,
-        language=args.language,
-    )
+    # ASR backend selection. The default whisperX path is below as the `else`; the
+    # opt-in GigaAM-RU path is model-dependent (sherpa-onnx + ONNX bundle) and so is
+    # excluded from coverage. BOTH branches must define `audio`, `audio_sec`,
+    # `language`, and `result` so the shared diarization/reconcile/confidence code
+    # below runs unchanged.
+    if args.asr == "gigaam":  # pragma: no cover - needs sherpa-onnx + GigaAM model
+        import asr_gigaam
+        log(f"loading audio: {args.audio}")
+        audio = whisperx.load_audio(args.audio)
+        audio_sec = len(audio) / 16000.0
+        log(f"GigaAM-RU ASR (sherpa-onnx) on {audio_sec:.1f}s ({audio_sec/60:.1f}m)")
+        ga = asr_gigaam.transcribe(args.audio)
+        language = args.language or "ru"
+        if ga.get("needs_alignment"):
+            log("GigaAM gave no word timestamps; aligning text with wav2vec")
+            # normalize_segments emits start=end=0.0 when no timestamps; whisperx.align
+            # crops audio[int(start*SR):int(end*SR)] per segment, so a zero-width window
+            # would starve the aligner. Widen to span the whole recording first.
+            for seg in ga["segments"]:
+                seg["start"] = 0.0
+                seg["end"] = audio_sec
+            with Heartbeat("alignment in progress"):
+                align_model, metadata = whisperx.load_align_model(
+                    language_code=language, device=args.device)
+                result = whisperx.align(
+                    ga["segments"], align_model, metadata, audio, args.device,
+                    return_char_alignments=False)
+            del align_model
+            log(f"alignment done: {len(result.get('segments', []))} aligned segments")
+        else:
+            result = {"segments": ga["segments"]}
+            log(f"GigaAM done: {len(result.get('segments', []))} word-timestamped segments")
+    else:
+        compute_type = "int8" if args.device == "cpu" else "float16"
+        log(f"loading model {args.model} (device={args.device}, compute_type={compute_type})")
+        model = whisperx.load_model(
+            args.model,
+            device=args.device,
+            compute_type=compute_type,
+            language=args.language,
+        )
 
-    log(f"loading audio: {args.audio}")
-    audio = whisperx.load_audio(args.audio)
-    audio_sec = len(audio) / 16000.0
-    log(f"audio loaded: {audio_sec:.1f}s ({audio_sec/60:.1f}m)")
+        log(f"loading audio: {args.audio}")
+        audio = whisperx.load_audio(args.audio)
+        audio_sec = len(audio) / 16000.0
+        log(f"audio loaded: {audio_sec:.1f}s ({audio_sec/60:.1f}m)")
 
-    # whisperX's transcribe() with verbose=True prints
-    #   `Transcript: [<start> --> <end>] <text>`
-    # for each segment as it's decoded. With batch_size=1 these stream one at a time;
-    # larger batches buffer them until the batch finishes.
-    log("transcribing (verbose: each segment streams as decoded)")
-    transcribe_kwargs = dict(batch_size=args.batch_size, verbose=True, print_progress=True)
-    if args.glossary:
-        transcribe_kwargs["initial_prompt"] = args.glossary
-        # faster-whisper >=1.0 also accepts hotwords; only pass if the signature supports it.
+        # whisperX's transcribe() with verbose=True prints
+        #   `Transcript: [<start> --> <end>] <text>`
+        # for each segment as it's decoded. With batch_size=1 these stream one at a time;
+        # larger batches buffer them until the batch finishes.
+        log("transcribing (verbose: each segment streams as decoded)")
+        transcribe_kwargs = dict(batch_size=args.batch_size, verbose=True, print_progress=True)
+        if args.glossary:
+            transcribe_kwargs["initial_prompt"] = args.glossary
+            # faster-whisper >=1.0 also accepts hotwords; only pass if the signature supports it.
+            try:
+                import inspect
+                if "hotwords" in inspect.signature(model.transcribe).parameters:
+                    transcribe_kwargs["hotwords"] = args.glossary
+            except (ValueError, TypeError):
+                pass
+        result = model.transcribe(audio, **transcribe_kwargs)
+        language = result.get("language") or args.language or "en"
+        raw_segments = result.get("segments") or []
+        log(f"transcribe done: {len(raw_segments)} segments · lang={language}")
+
+        # Free the ASR model before loading the alignment model — keeps CPU memory bounded.
+        del model
+
+        log("loading alignment model")
         try:
-            import inspect
-            if "hotwords" in inspect.signature(model.transcribe).parameters:
-                transcribe_kwargs["hotwords"] = args.glossary
-        except (ValueError, TypeError):
-            pass
-    result = model.transcribe(audio, **transcribe_kwargs)
-    language = result.get("language") or args.language or "en"
-    raw_segments = result.get("segments") or []
-    log(f"transcribe done: {len(raw_segments)} segments · lang={language}")
-
-    # Free the ASR model before loading the alignment model — keeps CPU memory bounded.
-    del model
-
-    log("loading alignment model")
-    try:
-        with Heartbeat("alignment in progress"):
-            align_model, metadata = whisperx.load_align_model(language_code=language, device=args.device)
-            result = whisperx.align(
-                raw_segments,
-                align_model,
-                metadata,
-                audio,
-                args.device,
-                return_char_alignments=False,
-            )
-        del align_model
-        log(f"alignment done: {len(result.get('segments', []))} aligned segments")
-    except Exception as e:  # pragma: no cover - alignment is best-effort
-        log(f"WARN: alignment failed ({type(e).__name__}: {e}); using unaligned segments")
-        result = {"segments": raw_segments, "language": language}
+            with Heartbeat("alignment in progress"):
+                align_model, metadata = whisperx.load_align_model(language_code=language, device=args.device)
+                result = whisperx.align(
+                    raw_segments,
+                    align_model,
+                    metadata,
+                    audio,
+                    args.device,
+                    return_char_alignments=False,
+                )
+            del align_model
+            log(f"alignment done: {len(result.get('segments', []))} aligned segments")
+        except Exception as e:  # pragma: no cover - alignment is best-effort
+            log(f"WARN: alignment failed ({type(e).__name__}: {e}); using unaligned segments")
+            result = {"segments": raw_segments, "language": language}
 
     # Overlap-aware turns drive the C2 confidence signals. Default empty so the
     # enrichment below is well-defined even when diarization is skipped/no token.

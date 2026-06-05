@@ -30,6 +30,48 @@ This creates `skills/scriba/.venv` (Python 3.12 via `uv`) and installs
   **whisperX + pyannote** for word-level timestamps, which on Apple Silicon runs on **CPU**.
 - Default mode = accuracy (`--device cpu`, large-v3). `--fast` = MLX (GPU) transcription.
 
+## Optional: GigaAM-RU backend (Russian only, opt-in)
+
+GigaAM (salute-developers, Apache/MIT) is SOTA for Russian ASR — roughly **-50% WER vs
+Whisper large-v3 on RU**. We run it through **sherpa-onnx** as a light ONNX transducer
+(no NeMo runtime): the ONNX runtime + a ~240M model bundle, much lighter than full NeMo.
+The default whisperX path is untouched; GigaAM is strictly opt-in and **Russian-only**.
+
+### How to enable
+
+- Explicit: `bash transcribe.sh <file> --lang ru --asr gigaam`
+- Auto: force Russian and set the opt-in env — `SCRIBA_RU_GIGAAM=1 bash transcribe.sh <file> --lang ru`
+  (the wrapper auto-selects `gigaam` only when both `--lang ru` and `SCRIBA_RU_GIGAAM=1`).
+
+The `--fast`/MLX path stays Whisper — there is no MLX GigaAM path. Diarization
+(pyannote community-1), C1 reconcile, C2 confidence, and C3 enrollment all run unchanged.
+
+### One-time setup
+
+1. Install the runtime into the skill venv:
+   ```bash
+   uv pip install --python skills/scriba/.venv/bin/python sherpa-onnx soundfile
+   ```
+2. Download the GigaAM ONNX bundle — `encoder.onnx`, `decoder.onnx`, `joiner.onnx`,
+   `tokens.txt` — into `~/.cache/scriba/gigaam/` (or set `SCRIBA_GIGAAM_DIR` to another dir).
+   Pre-exported sherpa-onnx GigaAM-RU bundles are published under the
+   [k2-fsa/sherpa-onnx releases](https://github.com/k2-fsa/sherpa-onnx/releases);
+   unpack so the four files sit directly in the model dir.
+
+### Spike — confirm word timestamps (run once with a real RU clip)
+
+sherpa-onnx may or may not populate `result.timestamps`/`result.tokens` for this model
+build. Confirm before relying on word-level attribution:
+```bash
+python3 skills/scriba/scripts/asr_gigaam.py --probe <ru_clip.wav>
+# → needs_alignment=False words=N text[:60]='…'   (timestamps present)
+# → needs_alignment=True  words=0 text[:60]='…'   (no timestamps)
+```
+If timestamps are present, GigaAM's word offsets feed diarization/reconcile directly.
+If absent (`needs_alignment=True`), the wrapper **auto-falls-back** to aligning GigaAM's
+text with whisperX's wav2vec aligner (`whisperx.align`) for the same word-level output —
+so either spike outcome works. No code change needed either way.
+
 ## Troubleshooting
 
 - **OpenMP / `libomp` crash** (`OMP: Error #15` or a hard abort): the wrapper already exports

@@ -35,6 +35,10 @@ Usage: transcribe.sh <media-file> [--fast] [--speakers N] [--lang XX] [--model M
   --enroll "Name=clip.wav,..." : pre-name speakers matched to known voices
   --lang XX     : force language (default: auto-detect)
   --model M     : whisper model (default: large-v3)
+  --asr whisperx|gigaam : ASR backend (default: whisperx). gigaam = Russian-only,
+                  opt-in (sherpa-onnx GigaAM-RU, ~-50% WER vs Whisper on RU); requires
+                  one-time setup (see references/setup.md). Auto-selected when
+                  --lang ru AND env SCRIBA_RU_GIGAAM=1. Ignored on the --fast/MLX path.
   --out-dir DIR : output directory (default: alongside input)
   --title "<name>" : human title for the output folder/file/H1 (use when the source
                   filename is generic, e.g. zoom_0 / GMT20260605-120000 / recording)
@@ -207,7 +211,7 @@ fi
 [[ $# -ge 1 && -f "${1:-}" ]] || usage
 
 INPUT="$1"; shift
-DEVICE="cpu"; MODEL="large-v3"; SPEAKERS=""; LANG=""; OUTDIR="$(dirname "$INPUT")"; TITLE=""
+DEVICE="cpu"; MODEL="large-v3"; SPEAKERS=""; LANG=""; OUTDIR="$(dirname "$INPUT")"; TITLE=""; ASR="whisperx"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --fast) DEVICE="mlx"; shift;;
@@ -215,11 +219,20 @@ while [[ $# -gt 0 ]]; do
     --enroll) ENROLL="$2"; shift 2;;
     --lang) LANG="$2"; shift 2;;
     --model) MODEL="$2"; shift 2;;
+    --asr) ASR="$2"; shift 2;;
     --out-dir) OUTDIR="$2"; shift 2;;
     --title|--name) TITLE="$2"; shift 2;;
     *) echo "Unknown arg: $1" >&2; usage;;
   esac
 done
+
+# Auto-select GigaAM-RU only when Russian is FORCED and the opt-in env is set, and
+# the caller didn't already pick a backend. GigaAM is RU-only (~-50% WER vs Whisper);
+# the default stays whisperX large-v3. The MLX/--fast path is Whisper-only (no MLX
+# GigaAM path) and is handled by the DEVICE==mlx branch below.
+if [[ "${ASR:-whisperx}" == "whisperx" && "$LANG" == "ru" && "${SCRIBA_RU_GIGAAM:-0}" == "1" ]]; then
+  ASR="gigaam"
+fi
 
 bootstrap  # idempotent
 
@@ -433,7 +446,7 @@ else
   # CPU path: call whisperX directly via our wrapper. verbose=True emits
   # `Transcript: [<start> --> <end>] <text>` for each segment as it's decoded —
   # the ticker parses this for REAL audio_position_sec, hardware-independent.
-  WRAP_ARGS=(--audio "$AUDIO" --output "$JSON" --model "$MODEL" --device "$DEVICE" --batch-size 1)
+  WRAP_ARGS=(--audio "$AUDIO" --output "$JSON" --model "$MODEL" --device "$DEVICE" --batch-size 1 --asr "$ASR")
   [[ -n "$LANG" ]] && WRAP_ARGS+=(--language "$LANG")
   if [[ -f "$HF_TOKEN_FILE" ]]; then
     WRAP_ARGS+=(--annotate --hf-token "$(cat "$HF_TOKEN_FILE")")
