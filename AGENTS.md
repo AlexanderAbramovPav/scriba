@@ -57,14 +57,24 @@ nohup bash <scriba>/scripts/transcribe.sh "<media-file>" > /tmp/scriba.log 2>&1 
 
 Then **tell the user about the external status surfaces** (see below) — one short line — and **wait silently** for the bg process to complete. Do not periodically poll status. The macOS notification (on completion) is your cue to read the output.
 
+## Glossary biasing — assemble domain terms for mixed-terminology accuracy
+
+ASR mangles product names, people, acronyms, and English tech terms spoken inside another language. Bias the model toward correct spellings: gather these terms from the meeting's context (invite, agenda, prior transcripts in the same folder) and write them **one per line** to `<recordings-dir>/.scriba/glossary.txt` (next to the media). Blank lines and `#` comments are ignored. They feed `initial_prompt`/`hotwords` and bias **every** run in that folder. A global fallback list lives at `~/.config/scriba/glossary` (project terms take precedence). Keeping this list accurate is the cheapest lever for mixed RU/EN terminology.
+
+## Known-speaker enrollment — pre-name speakers you already have voiceprints for
+
+When you have a short single-speaker reference clip per known person, pass `--enroll "Alice=alice.wav,Bob=bob.wav"` to `transcribe.sh`. Matched speakers come out **pre-named by construction** (real names baked into segments and words), so you can **skip the "who is Speaker N?" question for them**. Matching uses community-1 voice embeddings + a cosine threshold (greedy: each reference claims at most one cluster). **Unmatched speakers stay `Speaker N`** and follow the normal identify/rename flow below.
+
+Distinguish two clip kinds: **persistent voiceprints** in `.scriba/voiceprints/` (project, at the recordings root) over `~/.config/scriba/voiceprints/` (global) are reusable references fed to `--enroll` across meetings; the per-recording `<title>.transcript/data/speaker-N.wav` listening clips are just this one meeting's ID samples. After the user names a new speaker, you may offer to save a reference clip as a voiceprint so they're auto-recognised next time.
+
 ## Monitoring surfaces — point the user at these, don't burn tokens polling
 
-`scriba` writes three files next to the input while running:
+`scriba` writes live-status files next to the input (keyed to the **raw input stem**) while running, and the final output into a per-recording folder (see "Output layout" below):
 
-- `<stem>.transcript.progress.json` — small (~350 B) machine-readable state, refreshed every 5 s while running. **Auto-deleted on successful completion** (kept only on failure). If you need to gate on completion, check for the existence of `<stem>.transcript.md` itself instead, OR call `--status` (which reports `stage=done · transcript: <path>` when progress.json is gone but the transcript exists).
-- `<stem>.transcript.log` — raw whisperX + pyannote output. Verbose, do not read in full. **Auto-deleted on success**; preserved for post-mortem when something fails.
-- `<stem>.transcript.media/` — created at the end with one ≤10 s WAV per speaker. Kept.
-- `<stem>.transcript.md` — the final Markdown transcript. Kept.
+- `<input-stem>.transcript.progress.json` — small (~350 B) machine-readable state, refreshed every 5 s while running. **Auto-deleted on successful completion** (kept only on failure). To gate on completion, call `--status` (it reports `stage=done · transcript: <path>` once progress.json is gone but the transcript exists) rather than guessing the output path.
+- `<input-stem>.transcript.log` — raw whisperX + pyannote output. Verbose, do not read in full. **Auto-deleted on success**; preserved for post-mortem when something fails.
+
+**Output layout (kept).** The final transcript is a portable folder `<title>.transcript/` containing `<title>.md` plus a `data/` subfolder with the JSON sidecar (`data/transcript.json`) and one ≤10 s WAV per speaker (`data/speaker-N.wav`). `<title>` is the meaningful output stem (the input filename kebab-cased, or the `--title` you pass when the filename is generic). To decide whether a name is generic, check it with `python3 <scriba>/scripts/naming.py generic "<input-stem>"` (prints `1` if generic). `transcribe.sh` prints the folder path on success. A hidden `.scriba/index.json` at the recordings root is upserted with one entry per recording so you can find any meeting from a single file. Full layout: `references/file-layout.md`.
 
 Plus three external surfaces for the human:
 
@@ -76,14 +86,14 @@ When the user asks "how's it going?", run `bash <scriba>/scripts/transcribe.sh -
 
 ## When transcription finishes — help the user name the speakers
 
-Read the resulting `<stem>.transcript.md`. It opens with a `## Speakers — identify who's who` section: for each `Speaker N` the file gives a talk-time %, an embedded `<audio>` clip path under `<stem>.transcript.media/speaker-N.wav`, and three textual sample utterances.
+Read the resulting `<title>.transcript/<title>.md`. After the H1 title it opens with a `## Speakers — identify who's who` section: for each `Speaker N` the file gives a talk-time %, an embedded `<audio>` clip path under `data/speaker-N.wav`, and three textual sample utterances.
 
 Surface this to the user in their chat language (translate the headings if needed; the file itself stays English). The audio clip is the most reliable identification signal — explicitly point at it for users who don't recognise the voice from text alone.
 
 Wait for the mapping (e.g. "Speaker 1 = Alice, Speaker 2 = Bob"), then run:
 
 ```bash
-python3 <scriba>/scripts/rename_speakers.py "<stem>.transcript.md" "Alice,Bob,Carol"
+python3 <scriba>/scripts/rename_speakers.py "<title>.transcript/<title>.md" "Alice,Bob,Carol"
 ```
 
 (Comma-separated, in the order `Speaker 1, 2, 3, …`. Or use the explicit form: `--map "Speaker 1=Alice,Speaker 2=Bob"`.)

@@ -24,7 +24,7 @@ bootstrap() {
 
 usage() {
   cat >&2 <<EOF
-Usage: transcribe.sh <media-file> [--fast] [--speakers N] [--lang XX] [--model M] [--out-dir DIR]
+Usage: transcribe.sh <media-file> [--fast] [--speakers N] [--lang XX] [--model M] [--out-dir DIR] [--title "<name>"]
        transcribe.sh --bootstrap
        transcribe.sh --status <media-file>     # one-line progress (cheap to poll, AI-friendly)
        transcribe.sh --watch  <media-file>     # live TUI in this terminal (humans, no AI tokens)
@@ -32,9 +32,16 @@ Usage: transcribe.sh <media-file> [--fast] [--speakers N] [--lang XX] [--model M
   default: accuracy mode (whisperX large-v3 on CPU + pyannote diarization)
   --fast        : MLX (GPU) transcription, coarser speaker boundaries
   --speakers N  : hint number of speakers (default: auto)
+  --enroll "Name=clip.wav,..." : pre-name speakers matched to known voices
   --lang XX     : force language (default: auto-detect)
   --model M     : whisper model (default: large-v3)
+  --asr whisperx|gigaam : ASR backend (default: whisperx). gigaam = Russian-only,
+                  opt-in (sherpa-onnx GigaAM-RU, ~-50% WER vs Whisper on RU); requires
+                  one-time setup (see references/setup.md). Auto-selected when
+                  --lang ru AND env SCRIBA_RU_GIGAAM=1. Ignored on the --fast/MLX path.
   --out-dir DIR : output directory (default: alongside input)
+  --title "<name>" : human title for the output folder/file/H1 (use when the source
+                  filename is generic, e.g. zoom_0 / GMT20260605-120000 / recording)
 
 Live progress while transcribing (written next to the input):
   <stem>.transcript.progress.json  — machine-readable, refreshed every 5s
@@ -169,8 +176,11 @@ if [[ "${1:-}" == "--status" ]]; then
   PROG="$(dirname "$IN")/$STEM_S.transcript.progress.json"
   if [[ ! -f "$PROG" ]]; then
     # Disambiguate "not started yet" from "finished + cleaned up" by looking for the
-    # final transcript.md next to the input.
-    TRANSCRIPT_OUT="$(dirname "$IN")/$STEM_S.transcript.md"
+    # final transcript.md inside the per-recording folder (C6). Default-case output stem
+    # is the kebab of the input stem; with --title the names differ, but the agent knows
+    # the title in that case — default detection is the path that matters here.
+    OUT_STEM_S="$(python3 "$SKILL_DIR/scripts/naming.py" stem "$STEM_S" 2>/dev/null || echo "$STEM_S")"
+    TRANSCRIPT_OUT="$(dirname "$IN")/$OUT_STEM_S.transcript/$OUT_STEM_S.md"
     if [[ -f "$TRANSCRIPT_OUT" ]]; then
       echo "stage=done · transcript: $TRANSCRIPT_OUT"
       exit 0
@@ -201,17 +211,28 @@ fi
 [[ $# -ge 1 && -f "${1:-}" ]] || usage
 
 INPUT="$1"; shift
-DEVICE="cpu"; MODEL="large-v3"; SPEAKERS=""; LANG=""; OUTDIR="$(dirname "$INPUT")"
+DEVICE="cpu"; MODEL="large-v3"; SPEAKERS=""; LANG=""; OUTDIR="$(dirname "$INPUT")"; TITLE=""; ASR="whisperx"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --fast) DEVICE="mlx"; shift;;
     --speakers) SPEAKERS="$2"; shift 2;;
+    --enroll) ENROLL="$2"; shift 2;;
     --lang) LANG="$2"; shift 2;;
     --model) MODEL="$2"; shift 2;;
+    --asr) ASR="$2"; shift 2;;
     --out-dir) OUTDIR="$2"; shift 2;;
+    --title|--name) TITLE="$2"; shift 2;;
     *) echo "Unknown arg: $1" >&2; usage;;
   esac
 done
+
+# Auto-select GigaAM-RU only when Russian is FORCED and the opt-in env is set, and
+# the caller didn't already pick a backend. GigaAM is RU-only (~-50% WER vs Whisper);
+# the default stays whisperX large-v3. The MLX/--fast path is Whisper-only (no MLX
+# GigaAM path) and is handled by the DEVICE==mlx branch below.
+if [[ "${ASR:-whisperx}" == "whisperx" && "$LANG" == "ru" && "${SCRIBA_RU_GIGAAM:-0}" == "1" ]]; then
+  ASR="gigaam"
+fi
 
 bootstrap  # idempotent
 
@@ -425,12 +446,17 @@ else
   # CPU path: call whisperX directly via our wrapper. verbose=True emits
   # `Transcript: [<start> --> <end>] <text>` for each segment as it's decoded —
   # the ticker parses this for REAL audio_position_sec, hardware-independent.
-  WRAP_ARGS=(--audio "$AUDIO" --output "$JSON" --model "$MODEL" --device "$DEVICE" --batch-size 1)
+  WRAP_ARGS=(--audio "$AUDIO" --output "$JSON" --model "$MODEL" --device "$DEVICE" --batch-size 1 --asr "$ASR")
   [[ -n "$LANG" ]] && WRAP_ARGS+=(--language "$LANG")
   if [[ -f "$HF_TOKEN_FILE" ]]; then
     WRAP_ARGS+=(--annotate --hf-token "$(cat "$HF_TOKEN_FILE")")
   fi
   [[ -n "$SPEAKERS" ]] && WRAP_ARGS+=(--num-speakers "$SPEAKERS")
+  [[ -n "${ENROLL:-}" ]] && WRAP_ARGS+=(--enroll "$ENROLL")
+  # Glossary biasing (C5a): project-scoped ($OUTDIR/.scriba/glossary.txt) over global
+  # (~/.config/scriba/glossary). Passed as initial_prompt/hotwords to bias decoding.
+  GLOSSARY="$(python3 "$SKILL_DIR/scripts/glossary.py" --resolve "$OUTDIR" 2>/dev/null || true)"
+  [[ -n "$GLOSSARY" ]] && WRAP_ARGS+=(--glossary "$GLOSSARY")
   # `-u` is critical: without it Python block-buffers stdout when piped to tee,
   # so the `Transcript: [...]` per-segment lines pile up in a 4 KB buffer and
   # only flush at process exit — defeating the whole point of streaming progress.
@@ -442,14 +468,29 @@ fi
 
 echo "finalize" > "$STAGE_FILE"
 echo "[3/3] Rendering Markdown + audio clips ..." >&2
-OUT="$OUTDIR/$STEM.transcript.md"
-MEDIA_DIR="$OUTDIR/$STEM.transcript.media"
+
+# C6: meaningful name (input stem, or agent --title when generic), portable folder layout.
+RAW_STEM="$(basename "${INPUT%.*}")"
+TITLE="${TITLE:-}"
+OUT_STEM="$(python3 "$SKILL_DIR/scripts/naming.py" stem "$RAW_STEM" "$TITLE")"
+REC_DIR="$OUTDIR/$OUT_STEM.transcript"
+DATA_DIR="$REC_DIR/data"
+mkdir -p "$DATA_DIR"
+REC_ID="$OUT_STEM-$START_TS"
+OUT="$REC_DIR/$OUT_STEM.md"
 "$PY" "$SKILL_DIR/scripts/json_to_md.py" "$JSON" \
-  --source "$(basename "$INPUT")" \
+  --source "$(basename "$INPUT")" --title "$OUT_STEM" --id "$REC_ID" \
   --model "$MODEL (whisperX+pyannote)" \
-  --audio "$INPUT_ABS" \
-  --media-dir "$MEDIA_DIR" \
+  --audio "$INPUT_ABS" --media-dir "$DATA_DIR" --clips-rel "data" \
   > "$OUT"
+cp "$JSON" "$DATA_DIR/transcript.json" 2>/dev/null || true
+
+# Corpus index for the AI (hidden .scriba at the recordings root).
+LANG_OUT="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('language','auto'))" "$JSON" 2>/dev/null || echo auto)"
+LOWPCT="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('low_confidence_pct',0))" "$JSON" 2>/dev/null || echo 0)"
+ENTRY="$(python3 -c "import json,sys;print(json.dumps({'id':sys.argv[1],'title':sys.argv[2],'date':sys.argv[3],'lang':sys.argv[4],'duration':int(sys.argv[5]),'folder':sys.argv[6],'low_conf_pct':float(sys.argv[7])}))" \
+  "$REC_ID" "$OUT_STEM" "$(date +%Y-%m-%d)" "$LANG_OUT" "$AUDIO_SEC" "$OUT_STEM.transcript" "$LOWPCT")"
+python3 "$SKILL_DIR/scripts/update_index.py" upsert "$OUTDIR/.scriba" "$ENTRY" 2>/dev/null || true
 
 # Record observed factor — but only on files long enough for the per-audio-second rate
 # to dominate the one-off warmup. Short clips would skew the cache toward optimism.
@@ -477,8 +518,8 @@ if [[ "${NOTIFY:-1}" != "0" ]] && command -v osascript >/dev/null 2>&1; then
 fi
 
 # Success path reached → the diagnostic artefacts (log, progress.json) have served
-# their purpose. Delete them so the user is left with only the human-facing pair:
-# `<stem>.transcript.md` + `<stem>.transcript.media/`. On any earlier failure we
+# their purpose. Delete them so the user is left with only the human-facing output:
+# the `<title>.transcript/` folder (`<title>.md` + `data/`). On any earlier failure we
 # `exit` before this line, so the log stays on disk for post-mortem.
 # Stop the ticker explicitly so it doesn't recreate progress.json in the race window.
 kill $TICKER_PID 2>/dev/null || true

@@ -50,11 +50,14 @@ def load_segments(data):
         segs = list(segs.values())
     norm = []
     for s in segs or []:
+        fl = s.get("flags") or {}
+        flag = bool(fl.get("overlap") or fl.get("shaky_attribution"))
         norm.append({
             "start": float(s.get("start", 0.0)),
             "end": float(s.get("end", s.get("start", 0.0))),
             "text": (s.get("text") or "").strip(),
-            "speaker": s.get("speaker") or _dominant_speaker(s.get("words")) or "SPEAKER_00",
+            "speaker": s.get("speaker") or "SPEAKER_00",
+            "flag": flag,
         })
     return [s for s in norm if s["text"]], lang
 
@@ -97,6 +100,8 @@ def merge_turns(segs):
             turns[-1]["end"] = s["end"]
         else:
             turns.append(dict(s))
+        # A turn is flagged if any constituent segment was flagged.
+        turns[-1]["flag"] = turns[-1].get("flag") or s.get("flag")
     return turns
 
 
@@ -152,6 +157,15 @@ def main():
     ap.add_argument("--media-dir", default=None,
                     help="directory to write audio clips into (relative paths in the MD will "
                          "be computed from the MD's location — pass an absolute path).")
+    ap.add_argument("--title", default=None,
+                    help="human-facing recording title; becomes the H1 and the page title. "
+                         "Falls back to --source when absent.")
+    ap.add_argument("--id", default=None,
+                    help="stable recording id (used as the index key); emitted as frontmatter "
+                         "`id:` when provided.")
+    ap.add_argument("--clips-rel", default="data",
+                    help="directory (relative to the MD) holding the voice clips and the JSON "
+                         "sidecar — embedded `<audio src=…>` paths are computed from it.")
     a = ap.parse_args()
 
     data = json.loads(pathlib.Path(a.input).read_text(encoding="utf-8"))
@@ -162,15 +176,27 @@ def main():
     pct = talk_time(segs)
     duration = hhmmss(max(s["end"] for s in segs))
 
+    title = a.title or a.source
     out = []
     out.append("---")
+    if a.id:
+        out.append(f"id: {a.id}")
     out.append(f"source: {a.source}")
     out.append(f"date: {a.date}")
     out.append(f"duration: {duration}")
     out.append(f"model: {a.model}")
     out.append(f"language: {lang}")
+    low_pct = data.get("low_confidence_pct") if isinstance(data, dict) else None
+    if low_pct is not None:
+        out.append(f"low_confidence_pct: {low_pct}")
     out.append(f"speakers_detected: {len(order)}")
+    # Pointers into the portable per-recording folder (C6): the JSON sidecar and the
+    # voice clips both live under <clips-rel>/ next to this MD.
+    out.append(f"data: {a.clips_rel}/transcript.json")
+    out.append(f"clips: {a.clips_rel}/")
     out.append("---\n")
+
+    out.append(f"# {title}\n")
 
     out.append("## Speakers — identify who's who\n")
     media_dir = pathlib.Path(a.media_dir).resolve() if a.media_dir else None
@@ -185,7 +211,7 @@ def main():
             vs = voice_sample(segs, spk)
             if vs and cut_audio_clip(a.audio, media_dir / f"speaker-{spk_idx}.wav",
                                       vs["start"], vs["end"], max_duration=10.0):
-                rel = f"{media_dir.name}/speaker-{spk_idx}.wav"
+                rel = f"{a.clips_rel}/speaker-{spk_idx}.wav"
                 out.append("")
                 out.append(f'<audio controls preload="none" src="{rel}"></audio>')
         out.append("")
@@ -196,7 +222,8 @@ def main():
 
     out.append("## Transcript\n")
     for t in merge_turns(segs):
-        out.append(f"**{t['spk']}** [{hhmmss(t['start'])}]")
+        mark = " ⚠︎" if t.get("flag") else ""
+        out.append(f"**{t['spk']}** [{hhmmss(t['start'])}]{mark}")
         out.append(t["text"]); out.append("")
 
     sys.stdout.write("\n".join(out).rstrip() + "\n")

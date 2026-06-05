@@ -22,6 +22,9 @@ import time
 import warnings
 from pathlib import Path
 
+# Make the sibling module (diarize_reconcile) importable when run as a script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 # Belt-and-braces: even if the caller forgets `python -u`, force line-buffered
 # stdout/stderr so each whisperX `Transcript: [...]` print flushes at its newline.
 # Without this, piping to tee makes Python block-buffer 4 KB before flushing,
@@ -129,65 +132,113 @@ def main() -> int:
     ap.add_argument("--audio", required=True, help="path to 16kHz mono WAV")
     ap.add_argument("--output", required=True, help="path to write result JSON")
     ap.add_argument("--model", default="large-v3")
+    ap.add_argument("--asr", default="whisperx", choices=["whisperx", "gigaam"],
+                    help="ASR backend. gigaam = Russian-optimized (sherpa-onnx), opt-in.")
     ap.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
     ap.add_argument("--language", default=None)
     ap.add_argument("--batch-size", type=int, default=1,
                     help="whisperX batch size. 1 = smoothest per-segment streaming on CPU. "
                          "Larger values can be faster on GPU but stall progress until the batch finishes.")
+    ap.add_argument("--glossary", default=None,
+                    help="comma-separated bias terms (initial_prompt/hotwords)")
     ap.add_argument("--annotate", action="store_true", help="run pyannote diarization after transcription")
     ap.add_argument("--hf-token", default=None)
     ap.add_argument("--num-speakers", type=int, default=None)
+    ap.add_argument("--enroll", default=None,
+                    help='comma list "Name=clip.wav" to match known voices')
     args = ap.parse_args()
 
-    compute_type = "int8" if args.device == "cpu" else "float16"
-    log(f"loading model {args.model} (device={args.device}, compute_type={compute_type})")
-    model = whisperx.load_model(
-        args.model,
-        device=args.device,
-        compute_type=compute_type,
-        language=args.language,
-    )
+    # ASR backend selection. The default whisperX path is below as the `else`; the
+    # opt-in GigaAM-RU path is model-dependent (sherpa-onnx + ONNX bundle) and so is
+    # excluded from coverage. BOTH branches must define `audio`, `audio_sec`,
+    # `language`, and `result` so the shared diarization/reconcile/confidence code
+    # below runs unchanged.
+    if args.asr == "gigaam":  # pragma: no cover - needs sherpa-onnx + GigaAM model
+        import asr_gigaam
+        log(f"loading audio: {args.audio}")
+        audio = whisperx.load_audio(args.audio)
+        audio_sec = len(audio) / 16000.0
+        log(f"GigaAM-RU ASR (sherpa-onnx) on {audio_sec:.1f}s ({audio_sec/60:.1f}m)")
+        ga = asr_gigaam.transcribe(args.audio)
+        language = args.language or "ru"
+        if ga.get("needs_alignment"):
+            log("GigaAM gave no word timestamps; aligning text with wav2vec")
+            # normalize_segments emits start=end=0.0 when no timestamps; whisperx.align
+            # crops audio[int(start*SR):int(end*SR)] per segment, so a zero-width window
+            # would starve the aligner. Widen to span the whole recording first.
+            for seg in ga["segments"]:
+                seg["start"] = 0.0
+                seg["end"] = audio_sec
+            with Heartbeat("alignment in progress"):
+                align_model, metadata = whisperx.load_align_model(
+                    language_code=language, device=args.device)
+                result = whisperx.align(
+                    ga["segments"], align_model, metadata, audio, args.device,
+                    return_char_alignments=False)
+            del align_model
+            log(f"alignment done: {len(result.get('segments', []))} aligned segments")
+        else:
+            result = {"segments": ga["segments"]}
+            log(f"GigaAM done: {len(result.get('segments', []))} word-timestamped segments")
+    else:
+        compute_type = "int8" if args.device == "cpu" else "float16"
+        log(f"loading model {args.model} (device={args.device}, compute_type={compute_type})")
+        model = whisperx.load_model(
+            args.model,
+            device=args.device,
+            compute_type=compute_type,
+            language=args.language,
+        )
 
-    log(f"loading audio: {args.audio}")
-    audio = whisperx.load_audio(args.audio)
-    audio_sec = len(audio) / 16000.0
-    log(f"audio loaded: {audio_sec:.1f}s ({audio_sec/60:.1f}m)")
+        log(f"loading audio: {args.audio}")
+        audio = whisperx.load_audio(args.audio)
+        audio_sec = len(audio) / 16000.0
+        log(f"audio loaded: {audio_sec:.1f}s ({audio_sec/60:.1f}m)")
 
-    # whisperX's transcribe() with verbose=True prints
-    #   `Transcript: [<start> --> <end>] <text>`
-    # for each segment as it's decoded. With batch_size=1 these stream one at a time;
-    # larger batches buffer them until the batch finishes.
-    log("transcribing (verbose: each segment streams as decoded)")
-    result = model.transcribe(
-        audio,
-        batch_size=args.batch_size,
-        verbose=True,
-        print_progress=True,
-    )
-    language = result.get("language") or args.language or "en"
-    raw_segments = result.get("segments") or []
-    log(f"transcribe done: {len(raw_segments)} segments · lang={language}")
+        # whisperX's transcribe() with verbose=True prints
+        #   `Transcript: [<start> --> <end>] <text>`
+        # for each segment as it's decoded. With batch_size=1 these stream one at a time;
+        # larger batches buffer them until the batch finishes.
+        log("transcribing (verbose: each segment streams as decoded)")
+        transcribe_kwargs = dict(batch_size=args.batch_size, verbose=True, print_progress=True)
+        if args.glossary:
+            transcribe_kwargs["initial_prompt"] = args.glossary
+            # faster-whisper >=1.0 also accepts hotwords; only pass if the signature supports it.
+            try:
+                import inspect
+                if "hotwords" in inspect.signature(model.transcribe).parameters:
+                    transcribe_kwargs["hotwords"] = args.glossary
+            except (ValueError, TypeError):
+                pass
+        result = model.transcribe(audio, **transcribe_kwargs)
+        language = result.get("language") or args.language or "en"
+        raw_segments = result.get("segments") or []
+        log(f"transcribe done: {len(raw_segments)} segments · lang={language}")
 
-    # Free the ASR model before loading the alignment model — keeps CPU memory bounded.
-    del model
+        # Free the ASR model before loading the alignment model — keeps CPU memory bounded.
+        del model
 
-    log("loading alignment model")
-    try:
-        with Heartbeat("alignment in progress"):
-            align_model, metadata = whisperx.load_align_model(language_code=language, device=args.device)
-            result = whisperx.align(
-                raw_segments,
-                align_model,
-                metadata,
-                audio,
-                args.device,
-                return_char_alignments=False,
-            )
-        del align_model
-        log(f"alignment done: {len(result.get('segments', []))} aligned segments")
-    except Exception as e:  # pragma: no cover - alignment is best-effort
-        log(f"WARN: alignment failed ({type(e).__name__}: {e}); using unaligned segments")
-        result = {"segments": raw_segments, "language": language}
+        log("loading alignment model")
+        try:
+            with Heartbeat("alignment in progress"):
+                align_model, metadata = whisperx.load_align_model(language_code=language, device=args.device)
+                result = whisperx.align(
+                    raw_segments,
+                    align_model,
+                    metadata,
+                    audio,
+                    args.device,
+                    return_char_alignments=False,
+                )
+            del align_model
+            log(f"alignment done: {len(result.get('segments', []))} aligned segments")
+        except Exception as e:  # pragma: no cover - alignment is best-effort
+            log(f"WARN: alignment failed ({type(e).__name__}: {e}); using unaligned segments")
+            result = {"segments": raw_segments, "language": language}
+
+    # Overlap-aware turns drive the C2 confidence signals. Default empty so the
+    # enrichment below is well-defined even when diarization is skipped/no token.
+    overlap_turns: list = []
 
     if args.annotate and args.hf_token:
         log("diarizing (pyannote/speaker-diarization-community-1)")
@@ -229,10 +280,15 @@ def main() -> int:
             # and `.speaker_embeddings`. Older 3.x pipelines just return the Annotation
             # directly. Normalise both shapes.
             annotation = getattr(diarization, "speaker_diarization", diarization)
+            exclusive = getattr(diarization, "exclusive_speaker_diarization", annotation)
 
-            # Match whisperX DiarizationPipeline's return shape so assign_word_speakers works.
+            # Overlap-aware turns for confidence signals (C2).
+            overlap_turns = [(seg.start, seg.end, spk)
+                             for seg, _, spk in annotation.itertracks(yield_label=True)]
+
+            # Exclusive (non-overlapping) backbone for word assignment (C1/C2).
             diarize_df = pd.DataFrame(
-                annotation.itertracks(yield_label=True),
+                exclusive.itertracks(yield_label=True),
                 columns=["segment", "label", "speaker"],
             )
             diarize_df["start"] = diarize_df["segment"].apply(lambda x: x.start)
@@ -241,15 +297,71 @@ def main() -> int:
             with Heartbeat("assigning speakers to words"):
                 result = whisperx.assign_word_speakers(diarize_df, result)
             log(f"diarization done: {len(result.get('segments', []))} segments speaker-tagged")
+
+            # C3: match clusters to known voices and rename labels by construction.
+            # community-1's `speaker_embeddings` is a positional ndarray
+            # (num_speakers, dim) ordered to match `annotation.labels()` — NOT a dict;
+            # embeddings_to_dict zips them back into {label: vector}. The exclusive
+            # (segment) diarization shares the same label SET as `annotation`, so these
+            # mapping keys hit the segment/word `speaker` labels set by assign_word_speakers.
+            if args.enroll:
+                try:
+                    import enroll as _enroll
+                    cluster_embs = _enroll.embeddings_to_dict(
+                        annotation.labels(), getattr(diarization, "speaker_embeddings", None))
+                    ref_embs = {}
+                    for pair in args.enroll.split(","):
+                        name, _, clip = pair.partition("=")
+                        name, clip = name.strip(), clip.strip()
+                        if not (name and clip):
+                            continue
+                        ref_out = pa_pipeline({"waveform": torch.from_numpy(
+                            whisperx.load_audio(clip)[None, :]), "sample_rate": _SR})
+                        ref_arr = getattr(ref_out, "speaker_embeddings", None)
+                        if ref_arr is not None and len(ref_arr):
+                            ref_embs[name] = [float(x) for x in ref_arr[0]]  # single-speaker clip -> row 0
+                    mapping = _enroll.match_clusters(cluster_embs, ref_embs)
+                    for seg in result.get("segments", []):
+                        if seg.get("speaker") in mapping:
+                            seg["speaker"] = mapping[seg["speaker"]]
+                        for w in seg.get("words", []):
+                            if w.get("speaker") in mapping:
+                                w["speaker"] = mapping[w["speaker"]]
+                    if mapping:
+                        log(f"enrolled: {mapping}")
+                except Exception as e:  # pragma: no cover
+                    log(f"WARN: enrollment skipped ({type(e).__name__}: {e})")
         except Exception as e:
             log(f"WARN: diarization failed ({type(e).__name__}: {e}); continuing without speaker labels")
     elif args.annotate and not args.hf_token:
         log("WARN: --annotate requested but no --hf-token; skipping diarization")
 
+    # C1: split segments at word-level speaker changes (word-accurate attribution).
+    try:
+        import diarize_reconcile
+        result = diarize_reconcile.reconcile(result)
+        log(f"reconciled: {len(result.get('segments', []))} single-speaker segments")
+    except Exception as e:  # pragma: no cover
+        log(f"WARN: reconciliation skipped ({type(e).__name__}: {e})")
+
+    # C2: per-word confidence/overlap signals + a light low_confidence_pct.
+    # Must run AFTER reconcile so split segments carry the right per-word fields.
+    try:
+        import transcript_confidence
+        segs, low_pct = transcript_confidence.enrich_segments(
+            result.get("segments", []), overlap_turns)
+        result["segments"] = segs
+        result["low_confidence_pct"] = low_pct
+    except Exception as e:  # pragma: no cover
+        log(f"WARN: confidence enrichment skipped ({type(e).__name__}: {e})")
+        result["low_confidence_pct"] = 0.0
+
     out = {
+        "schema_version": 1,
         "language": language,
-        "segments": result.get("segments", []),
         "audio_duration_sec": round(audio_sec, 3),
+        "low_confidence_pct": result.get("low_confidence_pct", 0.0),
+        "segments": result.get("segments", []),
     }
     Path(args.output).write_text(json.dumps(out, ensure_ascii=False, indent=2))
     log(f"wrote JSON: {args.output}")
