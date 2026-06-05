@@ -32,6 +32,7 @@ Usage: transcribe.sh <media-file> [--fast] [--speakers N] [--lang XX] [--model M
   default: accuracy mode (whisperX large-v3 on CPU + pyannote diarization)
   --fast        : MLX (GPU) transcription, coarser speaker boundaries
   --speakers N  : hint number of speakers (default: auto)
+  --enroll "Name=clip.wav,..." : pre-name speakers matched to known voices
   --lang XX     : force language (default: auto-detect)
   --model M     : whisper model (default: large-v3)
   --out-dir DIR : output directory (default: alongside input)
@@ -206,6 +207,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --fast) DEVICE="mlx"; shift;;
     --speakers) SPEAKERS="$2"; shift 2;;
+    --enroll) ENROLL="$2"; shift 2;;
     --lang) LANG="$2"; shift 2;;
     --model) MODEL="$2"; shift 2;;
     --out-dir) OUTDIR="$2"; shift 2;;
@@ -431,6 +433,7 @@ else
     WRAP_ARGS+=(--annotate --hf-token "$(cat "$HF_TOKEN_FILE")")
   fi
   [[ -n "$SPEAKERS" ]] && WRAP_ARGS+=(--num-speakers "$SPEAKERS")
+  [[ -n "${ENROLL:-}" ]] && WRAP_ARGS+=(--enroll "$ENROLL")
   # Glossary biasing (C5a): project-scoped ($OUTDIR/.scriba/glossary.txt) over global
   # (~/.config/scriba/glossary). Passed as initial_prompt/hotwords to bias decoding.
   GLOSSARY="$(python3 "$SKILL_DIR/scripts/glossary.py" --resolve "$OUTDIR" 2>/dev/null || true)"

@@ -58,6 +58,25 @@ ignored. They feed `initial_prompt`/`hotwords` and bias **every** run in that fo
 fallback list lives at `~/.config/scriba/glossary` (project terms take precedence). Maintaining
 correct spellings here is the cheapest lever for mixed-terminology accuracy.
 
+#### Known-speaker enrollment (skip "who is Speaker N?")
+
+If you have a short single-speaker reference clip per known person, pass them so their speakers
+come out **pre-named by construction** instead of `Speaker N`:
+```
+bash skills/scriba/scripts/transcribe.sh "<media-file>" --enroll "Alice=alice.wav,Bob=bob.wav"
+```
+Matching uses community-1 voice embeddings + a cosine threshold: each meeting cluster is matched
+to its best reference above threshold (greedy, so a name claims at most one cluster). **Unmatched
+speakers stay `Speaker N`** and go through the normal identify/rename flow. For matched speakers,
+skip the "who is Speaker N?" question.
+
+**Persistent voiceprints vs per-recording clips.** Reusable reference clips ("voiceprints") live
+in `.scriba/voiceprints/` (project, next to the media) over `~/.config/scriba/voiceprints/`
+(global), and feed `--enroll` across meetings. These are distinct from the per-recording listening
+clips embedded at `<stem>.transcript.media/speaker-N.wav` (those are just for this one meeting's
+ID). After the user names a new speaker, you may offer to save a reference clip as a voiceprint so
+that person is auto-recognised in future meetings.
+
 ### Monitoring a running transcription
 
 **Default UX — point the user at the external surfaces, don't poll from the AI side.** Status visibility is free this way (zero AI tokens) and works whether the user keeps the chat open or not:

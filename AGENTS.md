@@ -61,6 +61,12 @@ Then **tell the user about the external status surfaces** (see below) — one sh
 
 ASR mangles product names, people, acronyms, and English tech terms spoken inside another language. Bias the model toward correct spellings: gather these terms from the meeting's context (invite, agenda, prior transcripts in the same folder) and write them **one per line** to `<recordings-dir>/.scriba/glossary.txt` (next to the media). Blank lines and `#` comments are ignored. They feed `initial_prompt`/`hotwords` and bias **every** run in that folder. A global fallback list lives at `~/.config/scriba/glossary` (project terms take precedence). Keeping this list accurate is the cheapest lever for mixed RU/EN terminology.
 
+## Known-speaker enrollment — pre-name speakers you already have voiceprints for
+
+When you have a short single-speaker reference clip per known person, pass `--enroll "Alice=alice.wav,Bob=bob.wav"` to `transcribe.sh`. Matched speakers come out **pre-named by construction** (real names baked into segments and words), so you can **skip the "who is Speaker N?" question for them**. Matching uses community-1 voice embeddings + a cosine threshold (greedy: each reference claims at most one cluster). **Unmatched speakers stay `Speaker N`** and follow the normal identify/rename flow below.
+
+Distinguish two clip kinds: **persistent voiceprints** in `.scriba/voiceprints/` (project, next to the media) over `~/.config/scriba/voiceprints/` (global) are reusable references fed to `--enroll` across meetings; the per-recording `<stem>.transcript.media/speaker-N.wav` listening clips are just this one meeting's ID samples. After the user names a new speaker, you may offer to save a reference clip as a voiceprint so they're auto-recognised next time.
+
 ## Monitoring surfaces — point the user at these, don't burn tokens polling
 
 `scriba` writes three files next to the input while running:

@@ -142,6 +142,8 @@ def main() -> int:
     ap.add_argument("--annotate", action="store_true", help="run pyannote diarization after transcription")
     ap.add_argument("--hf-token", default=None)
     ap.add_argument("--num-speakers", type=int, default=None)
+    ap.add_argument("--enroll", default=None,
+                    help='comma list "Name=clip.wav" to match known voices')
     args = ap.parse_args()
 
     compute_type = "int8" if args.device == "cpu" else "float16"
@@ -260,6 +262,40 @@ def main() -> int:
             with Heartbeat("assigning speakers to words"):
                 result = whisperx.assign_word_speakers(diarize_df, result)
             log(f"diarization done: {len(result.get('segments', []))} segments speaker-tagged")
+
+            # C3: match clusters to known voices and rename labels by construction.
+            # community-1's `speaker_embeddings` is a positional ndarray
+            # (num_speakers, dim) ordered to match `annotation.labels()` — NOT a dict;
+            # embeddings_to_dict zips them back into {label: vector}. The exclusive
+            # (segment) diarization shares the same label SET as `annotation`, so these
+            # mapping keys hit the segment/word `speaker` labels set by assign_word_speakers.
+            if args.enroll:
+                try:
+                    import enroll as _enroll
+                    cluster_embs = _enroll.embeddings_to_dict(
+                        annotation.labels(), getattr(diarization, "speaker_embeddings", None))
+                    ref_embs = {}
+                    for pair in args.enroll.split(","):
+                        name, _, clip = pair.partition("=")
+                        name, clip = name.strip(), clip.strip()
+                        if not (name and clip):
+                            continue
+                        ref_out = pa_pipeline({"waveform": torch.from_numpy(
+                            whisperx.load_audio(clip)[None, :]), "sample_rate": _SR})
+                        ref_arr = getattr(ref_out, "speaker_embeddings", None)
+                        if ref_arr is not None and len(ref_arr):
+                            ref_embs[name] = [float(x) for x in ref_arr[0]]  # single-speaker clip -> row 0
+                    mapping = _enroll.match_clusters(cluster_embs, ref_embs)
+                    for seg in result.get("segments", []):
+                        if seg.get("speaker") in mapping:
+                            seg["speaker"] = mapping[seg["speaker"]]
+                        for w in seg.get("words", []):
+                            if w.get("speaker") in mapping:
+                                w["speaker"] = mapping[w["speaker"]]
+                    if mapping:
+                        log(f"enrolled: {mapping}")
+                except Exception as e:  # pragma: no cover
+                    log(f"WARN: enrollment skipped ({type(e).__name__}: {e})")
         except Exception as e:
             log(f"WARN: diarization failed ({type(e).__name__}: {e}); continuing without speaker labels")
     elif args.annotate and not args.hf_token:
