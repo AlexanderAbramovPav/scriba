@@ -22,6 +22,9 @@ import time
 import warnings
 from pathlib import Path
 
+# Make the sibling module (diarize_reconcile) importable when run as a script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 # Belt-and-braces: even if the caller forgets `python -u`, force line-buffered
 # stdout/stderr so each whisperX `Transcript: [...]` print flushes at its newline.
 # Without this, piping to tee makes Python block-buffer 4 KB before flushing,
@@ -245,6 +248,14 @@ def main() -> int:
             log(f"WARN: diarization failed ({type(e).__name__}: {e}); continuing without speaker labels")
     elif args.annotate and not args.hf_token:
         log("WARN: --annotate requested but no --hf-token; skipping diarization")
+
+    # C1: split segments at word-level speaker changes (word-accurate attribution).
+    try:
+        import diarize_reconcile
+        result = diarize_reconcile.reconcile(result)
+        log(f"reconciled: {len(result.get('segments', []))} single-speaker segments")
+    except Exception as e:  # pragma: no cover
+        log(f"WARN: reconciliation skipped ({type(e).__name__}: {e})")
 
     out = {
         "language": language,
