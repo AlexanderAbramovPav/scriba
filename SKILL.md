@@ -34,8 +34,12 @@ Then continue with the transcription. Tell the user the token is read-only and c
 First invocation of `transcribe.sh` auto-bootstraps `.venv` and downloads model weights (~5 min, ~3 GB). Subsequent runs reuse the cache and start in seconds.
 
 ## Modes
-- **Default = accuracy:** whisperX large-v3 on CPU + pyannote. Best "who said what". Slower —
-  a ~1 h meeting ≈ 1–2 h of compute. **Run long files in the background** (e.g. via a background shell).
+- **Default = accuracy:** whisperX large-v3 on CPU + pyannote `community-1`. Strong "who said
+  what" — `community-1`'s authors report ~10–11% DER on standard benchmarks, and the model is
+  chosen to run on a normal Mac, not only a top-end one. Don't claim a scriba-specific accuracy
+  number you haven't measured; the user can measure DER on their own labeled audio with
+  `scripts/benchmark_der.py` (see `benchmarks/`). Slower — a ~1 h meeting ≈ 1–2 h of compute.
+  **Run long files in the background** (e.g. via a background shell).
 - **`--fast`:** MLX (GPU) transcription, coarser speaker boundaries. Use when speed matters.
 
 ## Workflow

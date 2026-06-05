@@ -18,7 +18,7 @@ Drop a file path into the chat. The assistant does the rest — runs entirely on
 
 - **Your audio never leaves your computer.** Nothing is uploaded to any cloud — not Otter, not AssemblyAI, not OpenAI, not us. Transcription and speaker recognition run locally on your Mac (or Linux box).
 - **Works with anything.** Zoom recordings, voice memos, podcast files, phone call exports — `.mp4`, `.mov`, `.m4a`, `.mp3`, `.wav`, `.webm`, you name it. The skill handles the format conversion for you.
-- **Best-in-class speaker recognition.** Uses [pyannote.audio v4](https://github.com/pyannote/pyannote-audio) — the open-source state-of-the-art for "who said what" — and [OpenAI Whisper large-v3](https://github.com/openai/whisper) for the words themselves. The same models the research community uses to benchmark everyone else.
+- **Accurate speaker recognition — and honest about it.** "Who said what" runs on [pyannote](https://github.com/pyannote/pyannote-audio)'s `speaker-diarization-community-1` — one of the most accurate *open-source* diarization models (its authors [report](https://huggingface.co/pyannote/speaker-diarization-community-1) ~10–11% DER on standard benchmarks), picked so it runs on a **normal Mac (M3 / 16 GB)**, not only a top-end M-Max. A heavier model (DiariZen-WavLM) edges it on some English benchmarks but costs a lot more compute; scriba favors the accuracy/footprint balance. Words come from [OpenAI Whisper large-v3](https://github.com/openai/whisper). **Don't take our word for it — [measure it on your own audio](./benchmarks/)** with `scripts/benchmark_der.py`.
 - **You can actually see it working.** Live progress in your editor's statusline, in a side terminal, or as a macOS notification when it's done — pick what you like. No more staring at a black screen wondering if it's stuck.
 - **Just one command.** No setup steps to learn. The assistant walks you through anything you don't have yet (HuggingFace account, etc.) in plain language.
 - **Built to be run automatically.** Point a `launchd`/`cron` watcher at your Zoom or Meet recordings folder — every call becomes a searchable transcript that flows into your **second brain / personal AI knowledge base** (Obsidian, Notion, Cognee, mem0, whatever you use). The more conversations you capture and feed your assistant, the sharper its answers about *you* get. See [Karpathy on personal Wikis](https://x.com/karpathy/status/1655994367033524225) for the broader idea.
@@ -28,9 +28,16 @@ Drop a file path into the chat. The assistant does the rest — runs entirely on
 |                                       | scriba | Otter / Fireflies / Granola | Local Whisper alone |
 | ------------------------------------- | :----------------: | :-------------------------: | :-----------------: |
 | Audio stays on your computer          |        ✅          |             ❌              |         ✅          |
-| Tells you who said what               |        ✅          |             ✅              |         ❌          |
+| Tells you who said what                                  |        ✅          |             ✅              |         ❌          |
+| Tells you who said what — *and how sure it is*           |        ✅          |             ❌              |         ❌          |
 | Cost after install                    |      **$0**        |        $10–30/mo            |         $0          |
 | Works offline                         |        ✅          |             ❌              |         ✅          |
+
+*"…and how sure it is"*: every word in the JSON sidecar carries an ASR
+confidence, a speaker-attribution confidence, and an overlap flag, so your AI
+knows which lines to trust and which to treat as shaky. And you can put a number
+on the diarization itself — [`benchmarks/`](./benchmarks/) ships a pure-Python
+DER scorer you run on your own labeled audio.
 
 ## What you'll get
 
