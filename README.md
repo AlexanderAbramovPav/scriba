@@ -34,20 +34,22 @@ Drop a file path into the chat. The assistant does the rest — runs entirely on
 
 ## What you'll get
 
-A Markdown file dropped next to your input video, with **a 10-second voice clip per speaker** embedded right in the file (click ▶ to play in Obsidian / VS Code / GitHub):
+A portable `<title>.transcript/` folder next to your input video, holding the Markdown plus its assets, with **a 10-second voice clip per speaker** embedded right in the file (click ▶ to play in Obsidian / VS Code / GitHub):
 
 ```markdown
+# q3-planning-sync
+
 ## Speakers — identify who's who
 
 **Speaker 1** (80% of speaking time).
-<audio controls src="meeting.transcript.media/speaker-1.wav"></audio>
+<audio controls src="data/speaker-1.wav"></audio>
 
 Sample utterances:
 > [00:00:03] «So the launch is moved to Friday — can we ship the docs by Thursday?»
 > [00:00:40] «...»
 
 **Speaker 2** (18% of speaking time).
-<audio controls src="meeting.transcript.media/speaker-2.wav"></audio>
+<audio controls src="data/speaker-2.wav"></audio>
 ...
 ```
 
@@ -100,7 +102,23 @@ When it finishes, the assistant opens the result and shows you the speakers it f
 
 The assistant asks "who is who?" — you answer (e.g. "Speaker 1 is Alice, Speaker 2 is Bob") — it renames them everywhere in the transcript. Done.
 
-The transcript lands as `your-meeting.transcript.md` next to your input file, with a `your-meeting.transcript.media/` folder containing the audio clips. Open it in any Markdown viewer (Obsidian, VS Code, GitHub — all show the embedded audio).
+## Where files go
+
+Each recording becomes a self-contained, portable folder next to your input file:
+
+```
+your-meeting.transcript/      ← move/zip/sync this whole folder; nothing breaks
+├── your-meeting.md           ← the transcript (H1 title + frontmatter)
+└── data/
+    ├── transcript.json       ← rich machine-readable sidecar (per-word confidence, speakers)
+    └── speaker-1.wav …       ← one ≤10 s voice clip per speaker, embedded in the MD
+```
+
+The MD points at `data/…` with **relative** paths, so the folder travels as a unit — open `your-meeting.md` in any Markdown viewer (Obsidian, VS Code, GitHub) and the embedded `<audio>` players just work.
+
+The **folder/file name is meaningful**: it's derived from your video's name (kebab-cased). When the source name is generic (`zoom_0`, `GMT20260605-120000`, `recording`, …), the assistant picks a real title for you. The original filename is always preserved in the `source:` frontmatter field.
+
+Alongside your recordings, a hidden **`.scriba/`** folder holds corpus-wide state your AI uses to navigate everything: `index.json` (one entry per recording — read once, find any meeting), plus the glossary and persistent voiceprints. Full layout in [`references/file-layout.md`](./references/file-layout.md).
 
 ## Beyond one-off meetings — run it automatically
 
@@ -115,7 +133,7 @@ fswatch -0 ~/Documents/Zoom | while read -d '' f; do
 done
 ```
 
-Then point your second-brain tool (Obsidian, Cognee, mem0, Notion AI, …) at the `*.transcript.md` files and you have a personal, private, searchable corpus of everything that's been said in your meetings — feeding back into AI assistants the way [Karpathy described a personal Wiki](https://x.com/karpathy/status/1655994367033524225). The more conversations the assistant can reach, the more it sounds like *you* and the better it answers questions about *your* world.
+Then point your second-brain tool (Obsidian, Cognee, mem0, Notion AI, …) at the `*.transcript/*.md` files and you have a personal, private, searchable corpus of everything that's been said in your meetings — feeding back into AI assistants the way [Karpathy described a personal Wiki](https://x.com/karpathy/status/1655994367033524225). The more conversations the assistant can reach, the more it sounds like *you* and the better it answers questions about *your* world.
 
 ## Limitations
 
@@ -150,14 +168,14 @@ bash scripts/transcribe.sh <media-file> [--fast] [--speakers N] [--lang XX] [--m
 
 Speaker renaming after the fact:
 ```bash
-python3 scripts/rename_speakers.py meeting.transcript.md "Alice,Bob,Carol"
+python3 scripts/rename_speakers.py meeting.transcript/meeting.md "Alice,Bob,Carol"
 # or explicit mapping:
-python3 scripts/rename_speakers.py meeting.transcript.md --map "Speaker 1=Alice,Speaker 2=Bob"
+python3 scripts/rename_speakers.py meeting.transcript/meeting.md --map "Speaker 1=Alice,Speaker 2=Bob"
 ```
 
 ### Monitoring surfaces
 
-Pick the channel that fits your workflow. All read the same source of truth (`*.transcript.progress.json` next to the input — auto-deleted on successful completion together with `*.transcript.log`, so you're left with only the human-facing `*.transcript.md` + `*.transcript.media/`. Diagnostic files are kept only when something fails).
+Pick the channel that fits your workflow. All read the same source of truth (`*.transcript.progress.json` next to the input — auto-deleted on successful completion together with `*.transcript.log`, so you're left with only the human-facing `<title>.transcript/` folder. Diagnostic files are kept only when something fails).
 
 | Surface | What you do | What you see |
 |---|---|---|
@@ -203,7 +221,7 @@ Intel and unknown CPUs fall back to `2.0×`. Linux works (degraded: no macOS not
 3. The wrapper bypasses whisperX's `DiarizationPipeline` and calls `pyannote.audio.Pipeline` directly with a custom `TextProgressHook` so each pyannote sub-step (`segmentation`, `embeddings`, `clustering`, `speaker_counting`, `discrete_diarization`) reports its real `completed/total` counters as plain text.
 4. A bash ticker scans the log every 5 s and writes the canonical `*.progress.json`.
 5. All monitoring surfaces read that one JSON.
-6. On exit, `json_to_md.py` turns the JSON into Markdown, and ffmpeg cuts one ≤10 s WAV clip per speaker into `<stem>.transcript.media/` for the embedded `<audio>` players.
+6. On exit, `json_to_md.py` turns the JSON into Markdown inside `<title>.transcript/`, ffmpeg cuts one ≤10 s WAV clip per speaker into its `data/` folder for the embedded `<audio>` players, the JSON sidecar is copied there too, and `update_index.py` upserts the recording into `.scriba/index.json`. See [`references/file-layout.md`](./references/file-layout.md).
 
 ## License
 

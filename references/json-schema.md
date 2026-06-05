@@ -1,7 +1,8 @@
 # Transcript JSON sidecar schema
 
-Every successful run persists a machine-readable sidecar next to the Markdown:
-`<stem>.transcript.json`. While the `.transcript.md` is the **human**-facing
+Every successful run persists a machine-readable sidecar inside the recording's
+folder: `<title>.transcript/data/transcript.json`. While `<title>.transcript/<title>.md`
+is the **human**-facing
 artifact (clean, with only a frontmatter `low_confidence_pct` and a subtle `⚠︎`
 on shaky turns), this JSON is the **AI**-facing input: it is honest about its
 own uncertainty so downstream consumers can weight spans accordingly.

@@ -157,6 +157,15 @@ def main():
     ap.add_argument("--media-dir", default=None,
                     help="directory to write audio clips into (relative paths in the MD will "
                          "be computed from the MD's location — pass an absolute path).")
+    ap.add_argument("--title", default=None,
+                    help="human-facing recording title; becomes the H1 and the page title. "
+                         "Falls back to --source when absent.")
+    ap.add_argument("--id", default=None,
+                    help="stable recording id (used as the index key); emitted as frontmatter "
+                         "`id:` when provided.")
+    ap.add_argument("--clips-rel", default="data",
+                    help="directory (relative to the MD) holding the voice clips and the JSON "
+                         "sidecar — embedded `<audio src=…>` paths are computed from it.")
     a = ap.parse_args()
 
     data = json.loads(pathlib.Path(a.input).read_text(encoding="utf-8"))
@@ -167,8 +176,11 @@ def main():
     pct = talk_time(segs)
     duration = hhmmss(max(s["end"] for s in segs))
 
+    title = a.title or a.source
     out = []
     out.append("---")
+    if a.id:
+        out.append(f"id: {a.id}")
     out.append(f"source: {a.source}")
     out.append(f"date: {a.date}")
     out.append(f"duration: {duration}")
@@ -178,7 +190,13 @@ def main():
     if low_pct is not None:
         out.append(f"low_confidence_pct: {low_pct}")
     out.append(f"speakers_detected: {len(order)}")
+    # Pointers into the portable per-recording folder (C6): the JSON sidecar and the
+    # voice clips both live under <clips-rel>/ next to this MD.
+    out.append(f"data: {a.clips_rel}/transcript.json")
+    out.append(f"clips: {a.clips_rel}/")
     out.append("---\n")
+
+    out.append(f"# {title}\n")
 
     out.append("## Speakers — identify who's who\n")
     media_dir = pathlib.Path(a.media_dir).resolve() if a.media_dir else None
@@ -193,7 +211,7 @@ def main():
             vs = voice_sample(segs, spk)
             if vs and cut_audio_clip(a.audio, media_dir / f"speaker-{spk_idx}.wav",
                                       vs["start"], vs["end"], max_duration=10.0):
-                rel = f"{media_dir.name}/speaker-{spk_idx}.wav"
+                rel = f"{a.clips_rel}/speaker-{spk_idx}.wav"
                 out.append("")
                 out.append(f'<audio controls preload="none" src="{rel}"></audio>')
         out.append("")

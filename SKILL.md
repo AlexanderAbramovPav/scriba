@@ -45,8 +45,14 @@ Run (background for long files; **don't pipe to `tail -N`** — it buffers until
 ```
 bash skills/scriba/scripts/transcribe.sh "<media-file>" [--fast] [--speakers N] [--lang XX]
 ```
-This writes `<stem>.transcript.md` next to the input and prints its path. It also prints a banner
-with the wall-clock ETA and the paths of two live-status files (see "Monitoring" below).
+This writes the transcript into a portable folder `<title>.transcript/` next to the input
+(`<title>.md` + a `data/` subfolder with the JSON sidecar and per-speaker voice clips) and
+prints the folder path. `<title>` is the input filename kebab-cased; when the filename is
+generic (`zoom_0`, `GMT…`, `recording`, a bare date), pass `--title "<meaningful name>"` and
+it's used instead. To decide, you can check the filename with
+`python3 skills/scriba/scripts/naming.py generic "<input-stem>"` (prints `1` if generic).
+It also prints a banner with the wall-clock ETA and the paths of two
+live-status files (see "Monitoring" below). Full layout: `references/file-layout.md`.
 
 #### Glossary biasing (mixed RU/EN terminology)
 
@@ -73,7 +79,7 @@ skip the "who is Speaker N?" question.
 **Persistent voiceprints vs per-recording clips.** Reusable reference clips ("voiceprints") live
 in `.scriba/voiceprints/` (project, next to the media) over `~/.config/scriba/voiceprints/`
 (global), and feed `--enroll` across meetings. These are distinct from the per-recording listening
-clips embedded at `<stem>.transcript.media/speaker-N.wav` (those are just for this one meeting's
+clips embedded at `<title>.transcript/data/speaker-N.wav` (those are just for this one meeting's
 ID). After the user names a new speaker, you may offer to save a reference clip as a voiceprint so
 that person is auto-recognised in future meetings.
 
@@ -84,7 +90,7 @@ that person is auto-recognised in future meetings.
 - **In the Claude Code chat's own statusline** (preferred — same window, no extra terminal needed). The skill ships `scripts/statusline.sh`, which prints `🎙 <stage> <pct>%* · ETA MM:SS` while a transcription runs (`*` = real, from a whisperX `Transcript: [...]` line; `~` = extrapolated, used in warmup / MLX path) and **stays silent** otherwise. To make it show up in the chat's bottom strip the user has to wire the script into their statusline once — recipes for claude-hud, the vanilla Claude Code `statusLine`, tmux, Starship, p10k, fish/zsh are in `references/statusline-integration.md`. The skill itself does not edit anyone's settings, so this is opt-in; mention it to the user the first time, point them at the file, and don't re-pitch. If they've already wired it but see nothing, the most common cause is they haven't restarted the Claude Code session since editing `settings.json`.
 - **For passive use** (launch and walk away): macOS Notification Center pings the user automatically when `stage=done` (Glass sound, with the output path). Tell the user: «нотификация прилетит, когда готово».
 - **For active watching**: `bash <skill>/scripts/transcribe.sh --watch "<media-file>"` — full-screen TUI in a side terminal: progress bar, audio %, ETA, last log line, refreshes every 2 s. Detach with Ctrl-C, transcription keeps running. Zero AI tokens.
-- **For a quick poke**: `tail -f "<stem>.transcript.log"` — raw whisperX output streaming, including each `Transcript: [start --> end] text` segment as it lands.
+- **For a quick poke**: `tail -f "<input-stem>.transcript.log"` — raw whisperX output streaming, including each `Transcript: [start --> end] text` segment as it lands.
 
 Tell the user these options when you launch. **Do NOT routinely poll from inside the chat** — every Monitor event or `--status` call costs AI tokens, and over a long run the cache misses add up fast.
 
@@ -115,7 +121,7 @@ Full ETA model and chip table in `references/eta-factors.md`.
 Open the transcript and read the `## Speakers — identify who's who` section to the user
 in their chat language (translate the headings on the fly if the user chats in Russian/etc;
 the section is always written in English in the file). For each `Speaker N` show: the
-talk-time %, **the path to the embedded `<stem>.transcript.media/speaker-N.wav` clip** (so
+talk-time %, **the path to the embedded `data/speaker-N.wav` clip** (so
 they can listen if the text quote isn't enough), and the three textual samples. Ask who
 each speaker is and wait for their mapping (e.g. "Speaker 1 = Alice, Speaker 2 = Bob"). The
 audio clip is the most reliable ID signal — point at it explicitly for users who don't
@@ -123,9 +129,9 @@ recognise the voice from text alone.
 
 ### Pass 2 — rename
 ```
-python3 skills/scriba/scripts/rename_speakers.py "<stem>.transcript.md" "Иван,Аня"
+python3 skills/scriba/scripts/rename_speakers.py "<title>.transcript/<title>.md" "Иван,Аня"
 # or explicit:
-python3 skills/scriba/scripts/rename_speakers.py "<stem>.transcript.md" --map "Speaker 1=Иван,Speaker 2=Аня"
+python3 skills/scriba/scripts/rename_speakers.py "<title>.transcript/<title>.md" --map "Speaker 1=Иван,Speaker 2=Аня"
 ```
 
 ## Rules
