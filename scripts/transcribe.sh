@@ -431,6 +431,10 @@ else
     WRAP_ARGS+=(--annotate --hf-token "$(cat "$HF_TOKEN_FILE")")
   fi
   [[ -n "$SPEAKERS" ]] && WRAP_ARGS+=(--num-speakers "$SPEAKERS")
+  # Glossary biasing (C5a): project-scoped ($OUTDIR/.scriba/glossary.txt) over global
+  # (~/.config/scriba/glossary). Passed as initial_prompt/hotwords to bias decoding.
+  GLOSSARY="$(python3 "$SKILL_DIR/scripts/glossary.py" --resolve "$OUTDIR" 2>/dev/null || true)"
+  [[ -n "$GLOSSARY" ]] && WRAP_ARGS+=(--glossary "$GLOSSARY")
   # `-u` is critical: without it Python block-buffers stdout when piped to tee,
   # so the `Transcript: [...]` per-segment lines pile up in a 4 KB buffer and
   # only flush at process exit — defeating the whole point of streaming progress.

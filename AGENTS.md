@@ -57,6 +57,10 @@ nohup bash <scriba>/scripts/transcribe.sh "<media-file>" > /tmp/scriba.log 2>&1 
 
 Then **tell the user about the external status surfaces** (see below) — one short line — and **wait silently** for the bg process to complete. Do not periodically poll status. The macOS notification (on completion) is your cue to read the output.
 
+## Glossary biasing — assemble domain terms for mixed-terminology accuracy
+
+ASR mangles product names, people, acronyms, and English tech terms spoken inside another language. Bias the model toward correct spellings: gather these terms from the meeting's context (invite, agenda, prior transcripts in the same folder) and write them **one per line** to `<recordings-dir>/.scriba/glossary.txt` (next to the media). Blank lines and `#` comments are ignored. They feed `initial_prompt`/`hotwords` and bias **every** run in that folder. A global fallback list lives at `~/.config/scriba/glossary` (project terms take precedence). Keeping this list accurate is the cheapest lever for mixed RU/EN terminology.
+
 ## Monitoring surfaces — point the user at these, don't burn tokens polling
 
 `scriba` writes three files next to the input while running:

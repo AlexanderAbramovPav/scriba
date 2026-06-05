@@ -137,6 +137,8 @@ def main() -> int:
     ap.add_argument("--batch-size", type=int, default=1,
                     help="whisperX batch size. 1 = smoothest per-segment streaming on CPU. "
                          "Larger values can be faster on GPU but stall progress until the batch finishes.")
+    ap.add_argument("--glossary", default=None,
+                    help="comma-separated bias terms (initial_prompt/hotwords)")
     ap.add_argument("--annotate", action="store_true", help="run pyannote diarization after transcription")
     ap.add_argument("--hf-token", default=None)
     ap.add_argument("--num-speakers", type=int, default=None)
@@ -161,12 +163,17 @@ def main() -> int:
     # for each segment as it's decoded. With batch_size=1 these stream one at a time;
     # larger batches buffer them until the batch finishes.
     log("transcribing (verbose: each segment streams as decoded)")
-    result = model.transcribe(
-        audio,
-        batch_size=args.batch_size,
-        verbose=True,
-        print_progress=True,
-    )
+    transcribe_kwargs = dict(batch_size=args.batch_size, verbose=True, print_progress=True)
+    if args.glossary:
+        transcribe_kwargs["initial_prompt"] = args.glossary
+        # faster-whisper >=1.0 also accepts hotwords; only pass if the signature supports it.
+        try:
+            import inspect
+            if "hotwords" in inspect.signature(model.transcribe).parameters:
+                transcribe_kwargs["hotwords"] = args.glossary
+        except (ValueError, TypeError):
+            pass
+    result = model.transcribe(audio, **transcribe_kwargs)
     language = result.get("language") or args.language or "en"
     raw_segments = result.get("segments") or []
     log(f"transcribe done: {len(raw_segments)} segments · lang={language}")

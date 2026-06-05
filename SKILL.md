@@ -48,6 +48,16 @@ bash skills/scriba/scripts/transcribe.sh "<media-file>" [--fast] [--speakers N] 
 This writes `<stem>.transcript.md` next to the input and prints its path. It also prints a banner
 with the wall-clock ETA and the paths of two live-status files (see "Monitoring" below).
 
+#### Glossary biasing (mixed RU/EN terminology)
+
+Domain terms get mangled by ASR — product names, people, acronyms, and English tech words spoken
+inside Russian. Bias the model toward the right spellings: assemble these terms from the meeting's
+context (invite, agenda, prior transcripts in the same folder) and write them **one per line** to
+`<recordings-dir>/.scriba/glossary.txt` (next to the media). Blank lines and `#` comments are
+ignored. They feed `initial_prompt`/`hotwords` and bias **every** run in that folder. A global
+fallback list lives at `~/.config/scriba/glossary` (project terms take precedence). Maintaining
+correct spellings here is the cheapest lever for mixed-terminology accuracy.
+
 ### Monitoring a running transcription
 
 **Default UX — point the user at the external surfaces, don't poll from the AI side.** Status visibility is free this way (zero AI tokens) and works whether the user keeps the chat open or not:
