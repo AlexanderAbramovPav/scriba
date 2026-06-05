@@ -50,11 +50,14 @@ def load_segments(data):
         segs = list(segs.values())
     norm = []
     for s in segs or []:
+        fl = s.get("flags") or {}
+        flag = bool(fl.get("overlap") or fl.get("shaky_attribution"))
         norm.append({
             "start": float(s.get("start", 0.0)),
             "end": float(s.get("end", s.get("start", 0.0))),
             "text": (s.get("text") or "").strip(),
             "speaker": s.get("speaker") or "SPEAKER_00",
+            "flag": flag,
         })
     return [s for s in norm if s["text"]], lang
 
@@ -97,6 +100,8 @@ def merge_turns(segs):
             turns[-1]["end"] = s["end"]
         else:
             turns.append(dict(s))
+        # A turn is flagged if any constituent segment was flagged.
+        turns[-1]["flag"] = turns[-1].get("flag") or s.get("flag")
     return turns
 
 
@@ -169,6 +174,9 @@ def main():
     out.append(f"duration: {duration}")
     out.append(f"model: {a.model}")
     out.append(f"language: {lang}")
+    low_pct = data.get("low_confidence_pct") if isinstance(data, dict) else None
+    if low_pct is not None:
+        out.append(f"low_confidence_pct: {low_pct}")
     out.append(f"speakers_detected: {len(order)}")
     out.append("---\n")
 
@@ -196,7 +204,8 @@ def main():
 
     out.append("## Transcript\n")
     for t in merge_turns(segs):
-        out.append(f"**{t['spk']}** [{hhmmss(t['start'])}]")
+        mark = " ⚠︎" if t.get("flag") else ""
+        out.append(f"**{t['spk']}** [{hhmmss(t['start'])}]{mark}")
         out.append(t["text"]); out.append("")
 
     sys.stdout.write("\n".join(out).rstrip() + "\n")

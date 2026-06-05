@@ -451,6 +451,13 @@ MEDIA_DIR="$OUTDIR/$STEM.transcript.media"
   --media-dir "$MEDIA_DIR" \
   > "$OUT"
 
+# Persist the rich, machine-readable transcript JSON next to the MD (C2). The
+# $JSON source lives under $TMP and is deleted on exit, so copy it out before
+# then. This sidecar is the AI-facing input (per-word confidence/overlap).
+# (Task 5 will relocate this into a data/ folder; next to the MD is fine for now.)
+SIDECAR="$OUTDIR/$STEM.transcript.json"
+cp "$JSON" "$SIDECAR" 2>/dev/null || true
+
 # Record observed factor — but only on files long enough for the per-audio-second rate
 # to dominate the one-off warmup. Short clips would skew the cache toward optimism.
 NOW=$(date +%s); EL=$((NOW - START_TS))

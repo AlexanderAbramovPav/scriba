@@ -192,6 +192,10 @@ def main() -> int:
         log(f"WARN: alignment failed ({type(e).__name__}: {e}); using unaligned segments")
         result = {"segments": raw_segments, "language": language}
 
+    # Overlap-aware turns drive the C2 confidence signals. Default empty so the
+    # enrichment below is well-defined even when diarization is skipped/no token.
+    overlap_turns: list = []
+
     if args.annotate and args.hf_token:
         log("diarizing (pyannote/speaker-diarization-community-1)")
         try:
@@ -232,10 +236,15 @@ def main() -> int:
             # and `.speaker_embeddings`. Older 3.x pipelines just return the Annotation
             # directly. Normalise both shapes.
             annotation = getattr(diarization, "speaker_diarization", diarization)
+            exclusive = getattr(diarization, "exclusive_speaker_diarization", annotation)
 
-            # Match whisperX DiarizationPipeline's return shape so assign_word_speakers works.
+            # Overlap-aware turns for confidence signals (C2).
+            overlap_turns = [(seg.start, seg.end, spk)
+                             for seg, _, spk in annotation.itertracks(yield_label=True)]
+
+            # Exclusive (non-overlapping) backbone for word assignment (C1/C2).
             diarize_df = pd.DataFrame(
-                annotation.itertracks(yield_label=True),
+                exclusive.itertracks(yield_label=True),
                 columns=["segment", "label", "speaker"],
             )
             diarize_df["start"] = diarize_df["segment"].apply(lambda x: x.start)
@@ -257,10 +266,24 @@ def main() -> int:
     except Exception as e:  # pragma: no cover
         log(f"WARN: reconciliation skipped ({type(e).__name__}: {e})")
 
+    # C2: per-word confidence/overlap signals + a light low_confidence_pct.
+    # Must run AFTER reconcile so split segments carry the right per-word fields.
+    try:
+        import transcript_confidence
+        segs, low_pct = transcript_confidence.enrich_segments(
+            result.get("segments", []), overlap_turns)
+        result["segments"] = segs
+        result["low_confidence_pct"] = low_pct
+    except Exception as e:  # pragma: no cover
+        log(f"WARN: confidence enrichment skipped ({type(e).__name__}: {e})")
+        result["low_confidence_pct"] = 0.0
+
     out = {
+        "schema_version": 1,
         "language": language,
-        "segments": result.get("segments", []),
         "audio_duration_sec": round(audio_sec, 3),
+        "low_confidence_pct": result.get("low_confidence_pct", 0.0),
+        "segments": result.get("segments", []),
     }
     Path(args.output).write_text(json.dumps(out, ensure_ascii=False, indent=2))
     log(f"wrote JSON: {args.output}")
