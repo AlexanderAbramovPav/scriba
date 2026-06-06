@@ -1,8 +1,22 @@
-# scriba
+<p align="center">
+  <img src="docs/scriba-logo.png" alt="scriba" width="240">
+</p>
 
-**Free, local, accurate meeting transcription with speaker recognition — for your AI assistant or second brain. A [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) skill.**
+<h1 align="center">scriba</h1>
 
-Drop a file path into the chat. The assistant does the rest — runs entirely on your Mac, no cloud, no uploads, no subscription.
+<p align="center">
+  <b>Free, local, accurate meeting transcription with speaker recognition — for your AI assistant or second brain.</b><br>
+  A <a href="https://docs.claude.com/en/docs/claude-code/overview">Claude Code</a> skill — drop a file path into the chat and the assistant does the rest. Everything runs on your Mac: no cloud, no uploads, no subscription.
+</p>
+
+<p align="center">
+  <a href="https://github.com/AlexanderAbramovPav/scriba/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/AlexanderAbramovPav/scriba?style=flat&logo=github&label=Stars"></a>
+  <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green"></a>
+  <img alt="macOS · Apple Silicon" src="https://img.shields.io/badge/macOS-Apple_Silicon-black?logo=apple&logoColor=white">
+  <img alt="100% on-device" src="https://img.shields.io/badge/privacy-100%25_on--device-orange">
+  <img alt="99+ languages" src="https://img.shields.io/badge/languages-99%2B-blue">
+  <a href="https://docs.claude.com/en/docs/claude-code/overview"><img alt="Claude Code skill" src="https://img.shields.io/badge/Claude_Code-skill-8A2BE2"></a>
+</p>
 
 ## Contents
 - [Why](#why)
@@ -102,6 +116,11 @@ Now you can walk away. The assistant runs the transcription in the background. W
 - **Live status** is visible inline in your chat statusline (something like `🎙 tx 47% · ETA 01:18`), updated every few seconds.
 - **A macOS notification** pops up when it's done (Glass sound).
 - Or open a side terminal and run the same command with `--watch` for a full-screen progress view.
+
+<p align="center">
+  <img src="docs/scriba-screen.png" alt="scriba live progress in Claude Code's Shell details" width="900">
+</p>
+<p align="center"><sub>Live progress streams right into Claude Code's “Shell details” — current stage, % and ETA update as it runs (even while diarization is quiet).</sub></p>
 
 When it finishes, the assistant opens the result and shows you the speakers it found. For each one you get:
 - A **short voice clip** (~10 seconds, click play in the chat / your editor — `<audio>` is embedded right in the Markdown).
