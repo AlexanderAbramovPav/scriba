@@ -43,7 +43,9 @@ def _intersect(a0, a1, b0, b1):
 
 def speaker_confidence(ws, we, speaker, turns):
     """Fraction of the word covered by its assigned speaker minus the best competitor."""
-    dur = max(1e-6, we - ws)
+    if we - ws <= 1e-6:   # zero-width word (e.g. an unalignable number token) — not assessable
+        return 1.0
+    dur = we - ws
     by_spk = {}
     for s, e, lbl in turns:
         ov = _intersect(ws, we, s, e)

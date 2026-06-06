@@ -56,7 +56,7 @@ def load_segments(data):
             "start": float(s.get("start", 0.0)),
             "end": float(s.get("end", s.get("start", 0.0))),
             "text": (s.get("text") or "").strip(),
-            "speaker": s.get("speaker") or "SPEAKER_00",
+            "speaker": s.get("speaker") or _dominant_speaker(s.get("words")) or "SPEAKER_00",
             "flag": flag,
         })
     return [s for s in norm if s["text"]], lang

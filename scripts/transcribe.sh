@@ -418,7 +418,7 @@ log_has() { grep -qE "$1" "$LOG" 2>/dev/null; }
     fi
     HB_TICK=$((HB_TICK + 1))
     if [[ "$HB_KEY" != "$HB_LAST" ]] || (( HB_TICK % 6 == 0 )); then
-      echo "$HB"; HB_LAST="$HB_KEY"
+      echo "$HB" >&2; HB_LAST="$HB_KEY"   # stderr: keep stdout clean for the final `echo "$OUT"`
     fi
 
     # `cut -c` on macOS counts BYTES not characters, which corrupts multi-byte UTF-8
@@ -456,6 +456,11 @@ JSON="$TMP/audio.json"
 if [[ "$DEVICE" == "mlx" ]]; then
   # MLX path: whisperX-py has no native MLX backend, so we keep whisply for --fast.
   # No real per-segment streaming, but MLX is fast enough that progress matters less.
+  # The fast path can't apply enrollment or glossary biasing (those live on the
+  # accuracy/whisperX path) — warn rather than silently ignore them.
+  if [[ -n "${ENROLL:-}" ]] || [[ -s "$OUTDIR/.scriba/glossary.txt" ]] || [[ -s "$HOME/.config/scriba/glossary" ]]; then
+    echo "WARN: --enroll and glossary biasing are NOT applied on the --fast/MLX path; drop --fast to use them." >&2
+  fi
   ( cd "$TMP" && KMP_DUPLICATE_LIB_OK=TRUE "$WHISPLY" run \
       -f "$AUDIO" -o "$TMP" -m "$MODEL" --device "$DEVICE" --export json \
       ${ANNOTATE[@]+"${ANNOTATE[@]}"} ${HF_ARGS[@]+"${HF_ARGS[@]}"} \
@@ -543,6 +548,7 @@ fi
 # `exit` before this line, so the log stays on disk for post-mortem.
 # Stop the ticker explicitly so it doesn't recreate progress.json in the race window.
 kill $TICKER_PID 2>/dev/null || true
+wait $TICKER_PID 2>/dev/null || true   # reap the ticker so no late line can trail stdout
 rm -f "$LOG" "$PROGRESS"
 
-echo "$OUT"
+echo "$OUT"   # MUST be the last line on stdout — callers parse it as the output path

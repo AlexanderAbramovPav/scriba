@@ -169,14 +169,18 @@ def main() -> int:
             for seg in ga["segments"]:
                 seg["start"] = 0.0
                 seg["end"] = audio_sec
-            with Heartbeat("alignment in progress"):
-                align_model, metadata = whisperx.load_align_model(
-                    language_code=language, device=args.device)
-                result = whisperx.align(
-                    ga["segments"], align_model, metadata, audio, args.device,
-                    return_char_alignments=False)
-            del align_model
-            log(f"alignment done: {len(result.get('segments', []))} aligned segments")
+            try:
+                with Heartbeat("alignment in progress"):
+                    align_model, metadata = whisperx.load_align_model(
+                        language_code=language, device=args.device)
+                    result = whisperx.align(
+                        ga["segments"], align_model, metadata, audio, args.device,
+                        return_char_alignments=False)
+                del align_model
+                log(f"alignment done: {len(result.get('segments', []))} aligned segments")
+            except Exception as e:  # mirror the whisperX path: degrade, don't crash
+                log(f"WARN: GigaAM alignment failed ({type(e).__name__}: {e}); using unaligned segments")
+                result = {"segments": ga["segments"]}
         else:
             result = {"segments": ga["segments"]}
             log(f"GigaAM done: {len(result.get('segments', []))} word-timestamped segments")

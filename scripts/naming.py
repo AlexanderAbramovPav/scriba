@@ -32,7 +32,10 @@ def output_stem(input_stem: str, title: str | None = None) -> str:
     # A non-empty title wins; otherwise fall back to the input stem; if that kebabs to
     # "" (all-punctuation/whitespace name), default to "transcript" so the output never
     # lands in a hidden ".transcript/.md".
-    return kebab(title) if title else (kebab(input_stem) or "transcript")
+    stem = (kebab(title) if title else kebab(input_stem)) or "transcript"
+    if len(stem) > 80:   # keep within the 255-byte filesystem name limit (multibyte-safe headroom)
+        stem = stem[:80].rstrip("-") or "transcript"
+    return stem
 
 
 if __name__ == "__main__":

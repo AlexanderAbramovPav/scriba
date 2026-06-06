@@ -77,3 +77,17 @@ def test_enrich_numpy_inputs_are_json_native():
     assert type(enriched[0]["flags"]["overlap"]) is bool
     assert type(enriched[0]["flags"]["shaky_attribution"]) is bool
     json.dumps({"segments": enriched, "low": low}, default=jsonsafe.json_default)
+
+
+def test_zero_width_word_not_flagged():
+    # C1 manufactures end==start words for unalignable tokens (e.g. numbers). A
+    # zero-width interval can't overlap any turn, so speaker_confidence must treat
+    # it as not-assessable (1.0) rather than 0.0 — else low_confidence_pct inflates.
+    turns = [(0.0, 5.0, "A")]
+    assert tc.speaker_confidence(0.4, 0.4, "A", turns) == 1.0
+    segments = [{"start": 0.0, "end": 1.0, "speaker": "A", "text": "in 1995",
+                 "words": [{"word": "in", "start": 0.0, "end": 0.3, "score": 0.9, "speaker": "A"},
+                           {"word": "1995", "start": 0.4, "end": 0.4, "score": 0.9, "speaker": "A"}]}]
+    enriched, low = tc.enrich_segments(segments, turns)
+    assert enriched[0]["flags"]["shaky_attribution"] is False
+    assert low == 0.0
