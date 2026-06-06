@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>Free, local, accurate meeting transcription with speaker recognition — for your AI assistant or second brain.</b><br>
-  A <a href="https://docs.claude.com/en/docs/claude-code/overview">Claude Code</a> skill — drop a file path into the chat and the assistant does the rest. Everything runs on your Mac: no cloud, no uploads, no subscription.
+  Drop a file path into your AI agent's chat — or run one command in your terminal — and get a clean, speaker-labeled transcript. Works with <a href="https://docs.claude.com/en/docs/claude-code/overview">Claude Code</a>, Codex, Cursor, Aider &amp; others via <a href="./AGENTS.md"><code>AGENTS.md</code></a>, or as a plain CLI with no AI at all. Everything runs on your Mac: no cloud, no uploads, no subscription.
 </p>
 
 <p align="center">
@@ -15,7 +15,7 @@
   <img alt="macOS · Apple Silicon" src="https://img.shields.io/badge/macOS-Apple_Silicon-black?logo=apple&logoColor=white">
   <img alt="100% on-device" src="https://img.shields.io/badge/privacy-100%25_on--device-orange">
   <img alt="99+ languages" src="https://img.shields.io/badge/languages-99%2B-blue">
-  <a href="https://docs.claude.com/en/docs/claude-code/overview"><img alt="Claude Code skill" src="https://img.shields.io/badge/Claude_Code-skill-8A2BE2"></a>
+  <a href="./AGENTS.md"><img alt="works with any AI agent via AGENTS.md" src="https://img.shields.io/badge/works_with-any_AI_agent-8A2BE2"></a>
 </p>
 
 ## Contents
@@ -105,7 +105,7 @@ The core of `scriba` is a bash + Python pipeline. The "skill" layer is a thin wr
 
 ## Usage
 
-Open Claude Code, type:
+Easiest path is Claude Code (other agents & the plain CLI: see [Use it with anything else](#dont-use-claude-code-use-it-with-anything-else) above). Open Claude Code, type:
 
 ```
 /scriba /path/to/your-meeting.mp4
