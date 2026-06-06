@@ -52,16 +52,18 @@ The `--fast`/MLX path stays Whisper — there is no MLX GigaAM path. Diarization
    ```bash
    uv pip install --python skills/scriba/.venv/bin/python sherpa-onnx soundfile
    ```
-2. Download the GigaAM ONNX bundle — `encoder.onnx`, `decoder.onnx`, `joiner.onnx`,
-   `tokens.txt` — into `~/.cache/scriba/gigaam/` (or set `SCRIBA_GIGAAM_DIR` to another dir).
-   Pre-exported sherpa-onnx GigaAM-RU bundles are published under the
-   [k2-fsa/sherpa-onnx releases](https://github.com/k2-fsa/sherpa-onnx/releases);
-   unpack so the four files sit directly in the model dir.
+2. Download a pre-exported sherpa-onnx GigaAM-RU **transducer** bundle into
+   `~/.cache/scriba/gigaam/` (or set `SCRIBA_GIGAAM_DIR`). Verified working:
+   [`sherpa-onnx-nemo-transducer-giga-am-v3-russian-2025-12-16`](https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-transducer-giga-am-v3-russian-2025-12-16.tar.bz2)
+   (~160 MB). Unpack so `encoder.int8.onnx`, `decoder.onnx`, `joiner.onnx`, `tokens.txt` sit
+   directly in the model dir. (`asr_gigaam.py` auto-detects `encoder.onnx`/`encoder.int8.onnx`
+   and loads it with `model_type="nemo_transducer"`.)
 
 ### Spike — confirm word timestamps (run once with a real RU clip)
 
-sherpa-onnx may or may not populate `result.timestamps`/`result.tokens` for this model
-build. Confirm before relying on word-level attribution:
+**Verified (sherpa-onnx 1.13.2 + GigaAM v3 transducer, M4 Max):** the model emits
+character-level `tokens` with per-char `timestamps`; `asr_gigaam` groups them into words.
+Re-confirm on your own build/clip:
 ```bash
 python3 skills/scriba/scripts/asr_gigaam.py --probe <ru_clip.wav>
 # → needs_alignment=False words=N text[:60]='…'   (timestamps present)
