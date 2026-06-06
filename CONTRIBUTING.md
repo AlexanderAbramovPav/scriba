@@ -60,7 +60,7 @@ I'll merge a one-line PR fast; the more data points, the more accurate the ETA o
 
 ```bash
 # clone (or have it under ~/.claude/skills/scriba via your install path)
-git clone https://github.com/<you>/scriba
+git clone https://github.com/AlexanderAbramovPav/scriba
 cd scriba
 
 # bootstrap the venv

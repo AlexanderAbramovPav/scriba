@@ -65,7 +65,7 @@ The assistant then asks you "who's Speaker 1?" — you answer, and it renames th
 ## Install
 
 ```bash
-git clone https://github.com/<your-fork>/scriba ~/.claude/skills/scriba
+git clone https://github.com/AlexanderAbramovPav/scriba ~/.claude/skills/scriba
 ```
 
 That's it. **Don't pre-configure anything.** The first time you transcribe, the assistant will pause and walk you through a one-time ~30-second step: creating a free HuggingFace account and pasting a token back into the chat. Three clicks in a browser, no terminal commands. You'll never see it again after that.
@@ -232,7 +232,8 @@ Intel and unknown CPUs fall back to `2.0×`. Linux works (degraded: no macOS not
 
 ## License
 
-[MIT](./LICENSE) — © 2026 Alexander Abramov.
+[MIT](./LICENSE) — © 2026 [Alexander Abramov](https://github.com/AlexanderAbramovPav).
+Source & issues: <https://github.com/AlexanderAbramovPav/scriba>
 
 Runtime dependencies (whisperX, pyannote.audio, faster-whisper, CTranslate2, OpenAI Whisper, ffmpeg) are installed locally, not vendored. Their licenses are catalogued in [`THIRD_PARTY_LICENSES.md`](./THIRD_PARTY_LICENSES.md).
 
