@@ -458,7 +458,7 @@ if [[ "$DEVICE" == "mlx" ]]; then
   # No real per-segment streaming, but MLX is fast enough that progress matters less.
   # The fast path can't apply enrollment or glossary biasing (those live on the
   # accuracy/whisperX path) — warn rather than silently ignore them.
-  if [[ -n "${ENROLL:-}" ]] || [[ -s "$OUTDIR/.scriba/glossary.txt" ]] || [[ -s "$HOME/.config/scriba/glossary" ]]; then
+  if [[ -n "${ENROLL:-}" ]] || [[ -n "$(python3 "$SKILL_DIR/scripts/glossary.py" --resolve "$OUTDIR" 2>/dev/null)" ]]; then
     echo "WARN: --enroll and glossary biasing are NOT applied on the --fast/MLX path; drop --fast to use them." >&2
   fi
   ( cd "$TMP" && KMP_DUPLICATE_LIB_OK=TRUE "$WHISPLY" run \
@@ -511,11 +511,14 @@ OUT="$REC_DIR/$OUT_STEM.md"
 cp "$JSON" "$DATA_DIR/transcript.json" 2>/dev/null || true
 
 # Corpus index for the AI (hidden .scriba at the recordings root).
-LANG_OUT="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('language','auto'))" "$JSON" 2>/dev/null || echo auto)"
-LOWPCT="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('low_confidence_pct',0))" "$JSON" 2>/dev/null || echo 0)"
-ENTRY="$(python3 -c "import json,sys;print(json.dumps({'id':sys.argv[1],'title':sys.argv[2],'date':sys.argv[3],'lang':sys.argv[4],'duration':int(sys.argv[5]),'folder':sys.argv[6],'low_conf_pct':float(sys.argv[7])}))" \
-  "$REC_ID" "$OUT_STEM" "$(date +%Y-%m-%d)" "$LANG_OUT" "$AUDIO_SEC" "$OUT_STEM.transcript" "$LOWPCT")"
-python3 "$SKILL_DIR/scripts/update_index.py" upsert "$OUTDIR/.scriba" "$ENTRY" 2>/dev/null || true
+# One python read of the sidecar (was three): pull language + low_confidence_pct and
+# assemble the entry in a single pass; argv6 is the JSON path.
+ENTRY="$(python3 -c "import json,sys
+try: d=json.load(open(sys.argv[6]))
+except Exception: d={}
+print(json.dumps({'id':sys.argv[1],'title':sys.argv[2],'date':sys.argv[3],'lang':d.get('language','auto'),'duration':int(sys.argv[4]),'folder':sys.argv[5],'low_conf_pct':float(d.get('low_confidence_pct',0))}))" \
+  "$REC_ID" "$OUT_STEM" "$(date +%Y-%m-%d)" "$AUDIO_SEC" "$OUT_STEM.transcript" "$JSON" 2>/dev/null || true)"
+[[ -n "$ENTRY" ]] && python3 "$SKILL_DIR/scripts/update_index.py" upsert "$OUTDIR/.scriba" "$ENTRY" 2>/dev/null || true
 
 # Record observed factor — but only on files long enough for the per-audio-second rate
 # to dominate the one-off warmup. Short clips would skew the cache toward optimism.

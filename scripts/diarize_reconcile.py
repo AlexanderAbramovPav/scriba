@@ -10,18 +10,16 @@ ML deps so they unit-test instantly.
 from __future__ import annotations
 
 
-def _timed(words):
-    """Words that carry a real speaker + start/end (skip punctuation/number tokens)."""
-    return [w for w in words if w.get("speaker") and w.get("start") is not None
-            and w.get("end") is not None]
+def _timed_word(w):
+    """True if the word carries a real speaker + start/end (not a punctuation/number token)."""
+    return bool(w.get("speaker") and w.get("start") is not None and w.get("end") is not None)
 
 
 def smooth_blips(words, min_blip_sec: float = 0.4):
     """Reassign an isolated single word whose duration < min_blip_sec when both
     neighbours share the *same other* speaker. Mutates copies, returns new list."""
     ws = [dict(w) for w in words]
-    timed_idx = [i for i, w in enumerate(ws)
-                 if w.get("speaker") and w.get("start") is not None and w.get("end") is not None]
+    timed_idx = [i for i, w in enumerate(ws) if _timed_word(w)]
     for pos in range(1, len(timed_idx) - 1):
         i_prev, i_cur, i_next = timed_idx[pos - 1], timed_idx[pos], timed_idx[pos + 1]
         cur = ws[i_cur]
@@ -38,8 +36,7 @@ def split_segment_by_speaker(segment, min_blip_sec: float = 0.4):
     Returns a list. If no word-level speakers exist (MLX path / diarization off),
     returns [segment] unchanged."""
     words = segment.get("words") or []
-    timed = _timed(words)
-    if not timed:
+    if not any(_timed_word(w) for w in words):
         return [segment]
 
     smoothed = smooth_blips(words, min_blip_sec=min_blip_sec)
