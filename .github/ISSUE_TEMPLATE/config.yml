@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions & ideas (Discussions)
+    url: https://github.com/AlexanderAbramovPav/scriba/discussions
+    about: Ask questions, share setups, or discuss ideas before filing an issue.
+  - name: Security report (private)
+    url: https://github.com/AlexanderAbramovPav/scriba/security/advisories/new
+    about: Report a vulnerability privately instead of opening a public issue.
