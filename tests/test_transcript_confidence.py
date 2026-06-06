@@ -53,3 +53,27 @@ def test_enrich_no_turns_not_all_flagged():
         for w in seg["words"]:
             assert w["speaker_conf"] == 1.0
     assert low_pct == 0.0
+
+
+def test_enrich_numpy_inputs_are_json_native():
+    # whisperX/pyannote feed NumPy scalars; our computed fields must come out as
+    # native Python types, and the whole sidecar must json-serialize. Regression
+    # for "TypeError: Object of type bool is not JSON serializable" (real-run bug).
+    try:
+        import numpy as np
+    except ImportError:
+        return
+    import json, pathlib, sys
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
+    import jsonsafe
+    segments = [{"start": 0.0, "end": 1.0, "speaker": "A", "text": "hi",
+                 "words": [{"word": "hi", "start": np.float64(0.2), "end": np.float64(0.8),
+                            "score": np.float32(0.9), "speaker": "A"}]}]
+    turns = [(np.float64(0.0), np.float64(1.0), "A"), (np.float64(0.5), np.float64(1.5), "B")]
+    enriched, low = tc.enrich_segments(segments, turns)
+    w = enriched[0]["words"][0]
+    assert type(w["overlap"]) is bool
+    assert type(w["speaker_conf"]) is float
+    assert type(enriched[0]["flags"]["overlap"]) is bool
+    assert type(enriched[0]["flags"]["shaky_attribution"]) is bool
+    json.dumps({"segments": enriched, "low": low}, default=jsonsafe.json_default)

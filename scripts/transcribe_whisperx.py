@@ -363,7 +363,9 @@ def main() -> int:
         "low_confidence_pct": result.get("low_confidence_pct", 0.0),
         "segments": result.get("segments", []),
     }
-    Path(args.output).write_text(json.dumps(out, ensure_ascii=False, indent=2))
+    import jsonsafe
+    Path(args.output).write_text(
+        json.dumps(out, ensure_ascii=False, indent=2, default=jsonsafe.json_default))
     log(f"wrote JSON: {args.output}")
     return 0
 

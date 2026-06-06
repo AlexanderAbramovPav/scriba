@@ -34,7 +34,7 @@ def overlap_regions(turns):
 
 
 def word_in_overlap(ws, we, regions):
-    return any(ws < re and we > rs for rs, re in regions)
+    return bool(any(ws < re and we > rs for rs, re in regions))
 
 
 def _intersect(a0, a1, b0, b1):
@@ -52,7 +52,7 @@ def speaker_confidence(ws, we, speaker, turns):
     mine = by_spk.get(speaker, 0.0) / dur
     others = [v / dur for k, v in by_spk.items() if k != speaker]
     best_other = max(others) if others else 0.0
-    return round(max(0.0, min(1.0, mine - best_other)), 3)
+    return round(float(max(0.0, min(1.0, mine - best_other))), 3)
 
 
 def enrich_segments(segments, turns):
@@ -83,6 +83,6 @@ def enrich_segments(segments, turns):
             if low:
                 flagged += 1
             seg_overlap = seg_overlap or w["overlap"]
-        seg["flags"] = {"overlap": seg_overlap, "shaky_attribution": seg_shaky}
+        seg["flags"] = {"overlap": bool(seg_overlap), "shaky_attribution": bool(seg_shaky)}
     low_pct = round(100.0 * flagged / total_words, 1) if total_words else 0.0
     return segments, low_pct
