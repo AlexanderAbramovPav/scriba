@@ -301,6 +301,7 @@ log_has() { grep -qE "$1" "$LOG" 2>/dev/null; }
 
 (
   set +e  # ticker must never kill the script
+  HB_TICK=0; HB_LAST=""   # stdout status-heartbeat throttle (keeps "Shell details" live)
   WARMUP_AT=0          # elapsed_sec when "Transcribing" first appears in log
   TRANSCRIBE_DONE_AT=0 # elapsed_sec when alignment starts (transcribe loop is done)
   PREV_STAGE=""        # for detecting sub-stage transitions inside the wrapper
@@ -400,6 +401,25 @@ log_has() { grep -qE "$1" "$LOG" 2>/dev/null; }
       STAGE_AT=$EL
     fi
     STAGE_SEC=$((EL - STAGE_AT))
+
+    # Compact status heartbeat -> stdout, so Claude Code's "Shell details" snapshot
+    # (and any plain capture) shows current status even while whisperX/pyannote is
+    # silent for tens of seconds. Emitted on stage/step change or every ~30s; the
+    # verbose per-segment stream still goes to the log, not here.
+    if [[ "$STG" == "transcribe" ]]; then
+      HB="🎙 transcribe ${AUDIO_PCT}% (audio) · $(fmt_time "$EL") elapsed · ETA $(fmt_time "$REM")"
+      HB_KEY="t:$((AUDIO_PCT/5))"
+    elif [[ -n "$DIARIZE_STEP" ]]; then
+      HB="🎙 ${STG}/${DIARIZE_STEP} ${DIARIZE_PCT}% · $(fmt_time "$STAGE_SEC") in stage · $(fmt_time "$EL") elapsed"
+      HB_KEY="d:${DIARIZE_STEP}:$((DIARIZE_PCT/10))"
+    else
+      HB="🎙 ${STG} · $(fmt_time "$STAGE_SEC") in stage · $(fmt_time "$EL") elapsed"
+      HB_KEY="s:${STG}"
+    fi
+    HB_TICK=$((HB_TICK + 1))
+    if [[ "$HB_KEY" != "$HB_LAST" ]] || (( HB_TICK % 6 == 0 )); then
+      echo "$HB"; HB_LAST="$HB_KEY"
+    fi
 
     # `cut -c` on macOS counts BYTES not characters, which corrupts multi-byte UTF-8
     # (Cyrillic, CJK, …) by chopping mid-character — that breaks the JSON. iconv with
