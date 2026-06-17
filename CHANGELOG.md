@@ -6,6 +6,14 @@ versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Diarization failed on fresh installs** with `TypeError: ... unexpected keyword argument 'token'`
+  (or `'plda'`) — whisply pins `pyannote.audio==3.4.0`, but the `community-1` pipeline + `token=`
+  need pyannote.audio ≥ 4.0. The bootstrap now upgrades to the tested `whisperx>=3.8.6` /
+  `pyannote.audio>=4.0` baseline and self-heals venvs created before this fix; a preflight guard
+  emits an actionable message (instead of a cryptic crash) if an older pyannote is still present.
+  ([#3](https://github.com/AlexanderAbramovPav/scriba/issues/3))
+
 ## [0.1.0] — 2026-06-06
 
 First public release.

@@ -49,7 +49,10 @@ logging.getLogger("lightning").setLevel(logging.ERROR)
 logging.getLogger("lightning.pytorch").setLevel(logging.ERROR)
 logging.getLogger("lightning_fabric").setLevel(logging.ERROR)
 
-import whisperx  # noqa: E402
+# whisperx is imported lazily inside main() (not at module top) so this module can be imported
+# for unit tests without the heavy ML stack installed — CI installs only pytest+numpy and never
+# exercises the ML path. The warning filters above still run at import time, before main()
+# triggers `import whisperx`, preserving the silence-before-load ordering.
 
 
 class TextProgressHook:
@@ -127,7 +130,32 @@ class Heartbeat:
             self._thread.join(timeout=1.0)
 
 
+def diarization_backend_ok(version_str: str) -> tuple[bool, str]:
+    """Is the installed pyannote.audio new enough for the community-1 diarization pipeline?
+
+    scriba loads `pyannote/speaker-diarization-community-1` with `token=` — both require
+    pyannote.audio >= 4.0. On 3.x, `from_pretrained` takes `use_auth_token` (not `token`) and
+    `SpeakerDiarization` has no `plda` clustering, so the call dies with a cryptic TypeError
+    (issue #3). whisply pins pyannote 3.4.0, so a stale venv can reach here; return an actionable
+    message instead of letting the doomed call throw. Pure (no imports) so it's unit-testable.
+    """
+    try:
+        major = int(str(version_str).split(".")[0])
+    except (ValueError, AttributeError, IndexError):
+        # Unparseable version → don't block; let the call proceed and the outer except handle it.
+        return True, ""
+    if major >= 4:
+        return True, ""
+    return (
+        False,
+        f"pyannote.audio {version_str} is too old for the community-1 diarization model "
+        "(needs >=4.0); re-run `bash scripts/transcribe.sh --bootstrap` to self-heal, or "
+        "`uv pip install -U 'whisperx>=3.8.6' 'pyannote.audio>=4.0'`",
+    )
+
+
 def main() -> int:
+    import whisperx  # heavy; deferred so this module imports cleanly for unit tests (see top note)
     ap = argparse.ArgumentParser()
     ap.add_argument("--audio", required=True, help="path to 16kHz mono WAV")
     ap.add_argument("--output", required=True, help="path to write result JSON")
@@ -244,7 +272,20 @@ def main() -> int:
     # enrichment below is well-defined even when diarization is skipped/no token.
     overlap_turns: list = []
 
+    # Preflight: community-1 + token= need pyannote.audio>=4.0. whisply pins 3.4.0, so a stale
+    # install would otherwise die deep inside from_pretrained() with the cryptic token/plda
+    # TypeError from issue #3. Read the version cheaply (importlib.metadata, no torch import) and
+    # surface an actionable message. The bootstrap self-heals; this guard is the belt to that braces.
+    diar_ready, diar_msg = True, ""
     if args.annotate and args.hf_token:
+        import importlib.metadata as _ilm
+        try:
+            _pa_ver = _ilm.version("pyannote.audio")
+        except _ilm.PackageNotFoundError:
+            _pa_ver = "0"
+        diar_ready, diar_msg = diarization_backend_ok(_pa_ver)
+
+    if args.annotate and args.hf_token and diar_ready:
         log("diarizing (pyannote/speaker-diarization-community-1)")
         try:
             # We bypass whisperX's `DiarizationPipeline.__call__` because it doesn't pass
@@ -337,6 +378,8 @@ def main() -> int:
                     log(f"WARN: enrollment skipped ({type(e).__name__}: {e})")
         except Exception as e:
             log(f"WARN: diarization failed ({type(e).__name__}: {e}); continuing without speaker labels")
+    elif args.annotate and args.hf_token and not diar_ready:
+        log(f"WARN: {diar_msg}; continuing without speaker labels")
     elif args.annotate and not args.hf_token:
         log("WARN: --annotate requested but no --hf-token; skipping diarization")
 

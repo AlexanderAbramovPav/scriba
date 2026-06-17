@@ -9,9 +9,25 @@ HF_TOKEN_FILE="${HF_TOKEN_FILE:-$HOME/.config/scriba/hf_token}"
 CALIB_FILE="${CALIB_FILE:-$HOME/.config/scriba/calibration.json}"
 ETA_HELPER="$SKILL_DIR/scripts/eta_helper.py"
 
+# Force the diarization path onto the tested baseline (pyannote.audio 4.x + whisperX 3.8.6).
+# whisply 0.14.1 hard-pins `pyannote.audio==3.4.0` and `whisperx==3.7.8`, but our wrapper loads
+# `pyannote/speaker-diarization-community-1` with `token=` — both require pyannote.audio>=4.0
+# (3.x uses `use_auth_token` and lacks community-1's PLDA clustering → the `token`/`plda`
+# TypeErrors in issue #3). Upgrading whisperx pulls pyannote 4.x transitively; we name both for
+# clarity. Idempotent: a no-op once the venv is already on 4.x. See references/setup.md.
+ensure_diar_baseline() {
+  # Fast major-version probe via importlib.metadata (no torch import). Exit 0 = already >=4.
+  if "$PY" -c "import importlib.metadata as m,sys; sys.exit(0 if int(m.version('pyannote.audio').split('.')[0])>=4 else 1)" 2>/dev/null; then
+    return 0
+  fi
+  echo "Upgrading diarization stack to whisperx>=3.8.6 + pyannote.audio>=4.0 (overrides whisply's stale pins) ..." >&2
+  uv pip install --python "$PY" --upgrade "whisperx>=3.8.6" "pyannote.audio>=4.0"
+}
+
 bootstrap() {
   if [[ -x "$WHISPLY" ]]; then
     echo "whisply already installed at $WHISPLY" >&2
+    ensure_diar_baseline  # self-heal venvs bootstrapped before this fix (issue #3)
     return 0
   fi
   command -v uv >/dev/null || { echo "ERROR: uv not found on PATH" >&2; exit 1; }
@@ -19,6 +35,7 @@ bootstrap() {
   uv venv --python 3.12 "$VENV"
   echo "Installing whisply[mlx] (pulls torch/pyannote/whisperX; takes a few minutes) ..." >&2
   uv pip install --python "$PY" "whisply[mlx]"
+  ensure_diar_baseline
   echo "Bootstrap done. If you hit an OpenMP crash, KMP_DUPLICATE_LIB_OK=TRUE is already set by this script." >&2
 }
 
