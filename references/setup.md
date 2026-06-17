@@ -22,7 +22,16 @@ The wrapper bootstraps an isolated venv on first use:
 bash skills/scriba/scripts/transcribe.sh --bootstrap
 ```
 This creates `skills/scriba/.venv` (Python 3.12 via `uv`) and installs
-`whisply[mlx]` (pulls torch, torchaudio, pyannote, whisperX, and MLX).
+`whisply[mlx]` (pulls torch, torchaudio, pyannote, whisperX, and MLX), then **upgrades the
+diarization stack to the tested baseline** `whisperx>=3.8.6` + `pyannote.audio>=4.0`.
+
+> **Why the upgrade step.** whisply 0.14.1 hard-pins `pyannote.audio==3.4.0` / `whisperx==3.7.8`,
+> but the diarization path loads `pyannote/speaker-diarization-community-1` with `token=` — both
+> require pyannote.audio ≥ 4.0 (3.x uses `use_auth_token` and lacks community-1's PLDA clustering).
+> Without the upgrade, diarization fails with a `token` / `plda` `TypeError` (issue #3). The
+> bootstrap is **idempotent and self-healing**: re-running `--bootstrap` on a venv created before
+> this fix detects the stale pyannote and upgrades it in place (transcription is unaffected; you
+> just lose speaker labels until the upgrade runs).
 
 ## Engine / modes
 
@@ -76,6 +85,11 @@ so either spike outcome works. No code change needed either way.
 
 ## Troubleshooting
 
+- **Diarization fails with `unexpected keyword argument 'token'` or `'plda'`** (issue #3): your
+  venv is on **pyannote.audio 3.x** (whisply's pin), but the community-1 pipeline needs ≥ 4.0.
+  Re-run `bash skills/scriba/scripts/transcribe.sh --bootstrap` to self-heal, or upgrade manually:
+  `uv pip install --python skills/scriba/.venv/bin/python -U "whisperx>=3.8.6" "pyannote.audio>=4.0"`.
+  Transcription itself is unaffected — only speaker labels are skipped until the upgrade runs.
 - **OpenMP / `libomp` crash** (`OMP: Error #15` or a hard abort): the wrapper already exports
   `KMP_DUPLICATE_LIB_OK=TRUE`. If running whisply manually, prefix the same env var.
 - **ctranslate2 / torch version conflict** (per whisply docs): ensure `torch==2.8.0` and
