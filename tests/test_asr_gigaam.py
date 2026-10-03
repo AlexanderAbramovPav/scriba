@@ -22,6 +22,13 @@ def test_normalize_without_timestamps_marks_fallback():
     assert out["segments"][0]["text"] == "привет мир"
 
 
+def test_single_word_character_stream_is_grouped_when_declared():
+    raw = {"text": "да", "tokens": ["д", "а"], "timestamps": [0.1, 0.2],
+           "durations": [0.05, 0.05]}
+    out = ga.normalize_segments(raw, character_tokens=True)
+    assert [w["word"] for w in out["segments"][0]["words"]] == ["да"]
+
+
 def test_chars_to_words_groups_on_space():
     # GigaAM emits character tokens with a literal space separator.
     tokens = ["н", "е", " ", "д", "а"]

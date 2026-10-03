@@ -5,8 +5,8 @@
 <h1 align="center">scriba</h1>
 
 <p align="center">
-  <b>Free, local, accurate meeting transcription with speaker recognition — for your AI assistant or second brain.</b><br>
-  Drop a file path into your AI agent's chat — or run one command in your terminal — and get a clean, speaker-labeled transcript. Works with <a href="https://docs.claude.com/en/docs/claude-code/overview">Claude Code</a>, Codex, Cursor, Aider &amp; others via <a href="./AGENTS.md"><code>AGENTS.md</code></a>, or as a plain CLI with no AI at all. Everything runs on your Mac: no cloud, no uploads, no subscription.
+  <b>Fast local meeting transcription with speaker diarization — for your AI assistant or second brain.</b><br>
+  Russian GigaAM v3, multilingual WhisperX, and Nemotron 3 speaker diarization across languages, with pyannote fallback. Get Markdown, word timestamps, and voice clips through Claude Code, Codex, Cursor, Aider &amp; others via <a href="./AGENTS.md"><code>AGENTS.md</code></a>, or run the plain CLI. Audio processing stays on your computer. Optional punctuation uses the AI in your current chat, with validation that preserves the recognized words.
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
   <a href="https://github.com/AlexanderAbramovPav/scriba/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/AlexanderAbramovPav/scriba?style=flat&logo=github&label=Stars"></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green"></a>
   <img alt="macOS · Apple Silicon" src="https://img.shields.io/badge/macOS-Apple_Silicon-black?logo=apple&logoColor=white">
-  <img alt="100% on-device" src="https://img.shields.io/badge/privacy-100%25_on--device-orange">
+  <img alt="audio processed on-device" src="https://img.shields.io/badge/audio-on--device-orange">
   <img alt="99+ languages" src="https://img.shields.io/badge/languages-99%2B-blue">
   <a href="./AGENTS.md"><img alt="works with any AI agent via AGENTS.md" src="https://img.shields.io/badge/works_with-any_AI_agent-8A2BE2"></a>
 </p>
@@ -31,9 +31,11 @@
 
 ## Why
 
-- **Your audio never leaves your computer.** Nothing is uploaded to any cloud — not Otter, not AssemblyAI, not OpenAI, not us. Transcription and speaker recognition run locally on your Mac (or Linux box).
+- **Audio processing stays local.** Speech recognition and speaker diarization run on your Mac (or Linux box). The optional host-AI punctuation step reads transcript text in your current AI session and follows that session's privacy and usage settings; skip it for a fully local CLI workflow.
 - **Works with anything.** Zoom recordings, voice memos, podcast files, phone call exports — `.mp4`, `.mov`, `.m4a`, `.mp3`, `.wav`, `.webm`, you name it. The skill handles the format conversion for you.
-- **Accurate speaker recognition — and honest about it.** "Who said what" runs on [pyannote](https://github.com/pyannote/pyannote-audio)'s `speaker-diarization-community-1` — one of the most accurate *open-source* diarization models (its authors [report](https://huggingface.co/pyannote/speaker-diarization-community-1) ~10–11% DER on standard benchmarks), picked so it runs on a **normal Mac (M3 / 16 GB)**, not only a top-end M-Max. A heavier model (DiariZen-WavLM) edges it on some English benchmarks but costs a lot more compute; scriba favors the accuracy/footprint balance. Words come from [OpenAI Whisper large-v3](https://github.com/openai/whisper). **Don't take our word for it — [measure it on your own audio](./benchmarks/)** with `scripts/benchmark_der.py`.
+- **The same diarization route for every language.** Installed [Nemotron 3](https://huggingface.co/nvidia/Nemotron-3-Diarization) is selected automatically for Russian, English, German and other ASR languages, including auto-detection. It supports up to eight speakers. [Pyannote community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) remains available for fallback, an exact speaker count, or known-voice enrollment. Equal quality across languages is not assumed: [measure it on your labeled audio](./benchmarks/) with `scripts/benchmark_der.py`.
+- **Fast Russian ASR, multilingual Whisper for other languages.** An installed [GigaAM v3 RNNT](https://github.com/salute-developers/GigaAM) bundle is selected with `--lang ru`; WhisperX turbo is the Apple Silicon default otherwise. `--accurate` retains full Whisper large-v3. [Setup and model limits](./references/local-backends.md).
+- **Readable text without rewriting the conversation.** Your current AI can add punctuation and sentence case. The [validator](./references/punctuation.md) rejects changed words, numbers or repetitions; raw files and speaker/timing evidence are preserved.
 - **You can actually see it working.** Live progress in your editor's statusline, in a side terminal, or as a macOS notification when it's done — pick what you like. No more staring at a black screen wondering if it's stuck.
 - **Just one command.** No setup steps to learn. The assistant walks you through anything you don't have yet (HuggingFace account, etc.) in plain language.
 - **Built to be run automatically.** Point a `launchd`/`cron` watcher at your Zoom or Meet recordings folder — every call becomes a searchable transcript that flows into your **second brain / personal AI knowledge base** (Obsidian, Notion, Cognee, mem0, whatever you use). The more conversations you capture and feed your assistant, the sharper its answers about *you* get. See [Karpathy on personal Wikis](https://x.com/karpathy/status/1655994367033524225) for the broader idea.
@@ -45,11 +47,12 @@
 | Audio stays on your computer          |        ✅          |             ❌              |         ✅          |
 | Tells you who said what                                  |        ✅          |             ✅              |         ❌          |
 | Tells you who said what — *and how sure it is*           |        ✅          |             ❌              |         ❌          |
-| Cost after install                    |      **$0**        |        $10–30/mo            |         $0          |
+| Cost after install                    | **$0 for local pipeline; optional AI session usage** | $10–30/mo | $0 |
 | Works offline                         |        ✅          |             ❌              |         ✅          |
 
-*"…and how sure it is"*: every word in the JSON sidecar carries an ASR
-confidence, a speaker-attribution confidence, and an overlap flag, so your AI
+*"…and how sure it is"*: timed words in the JSON sidecar carry an ASR
+confidence when the backend provides one (otherwise `null`), a speaker-attribution
+margin, and an overlap flag, so your AI
 knows which lines to trust and which to treat as shaky. And you can put a number
 on the diarization itself — [`benchmarks/`](./benchmarks/) ships a pure-Python
 DER scorer you run on your own labeled audio.
@@ -83,7 +86,12 @@ The assistant then asks you "who's Speaker 1?" — you answer, and it renames th
 git clone https://github.com/AlexanderAbramovPav/scriba ~/.claude/skills/scriba
 ```
 
-That's it. **Don't pre-configure anything.** The first time you transcribe, the assistant will pause and walk you through a one-time ~30-second step: creating a free HuggingFace account and pasting a token back into the chat. Three clicks in a browser, no terminal commands. You'll never see it again after that.
+The first run bootstraps the Python environment and downloads model weights.
+For the pyannote path, the assistant guides you through accepting the model terms
+and storing a HuggingFace read token. Installed Nemotron needs no token.
+The optional [native-backend setup](./references/local-backends.md#reproduce-this-installation)
+enables Nemotron diarization for all languages; the [Russian bundle setup](./references/setup.md#one-time-setup-1)
+enables GigaAM v3 RNNT. Both are reused on later runs.
 
 > *Why HuggingFace?* It's the open-source equivalent of an app store for AI models. The speaker-recognition model is free, but its authors require accepting a usage agreement once — pretty standard for research-grade open source.
 
@@ -123,7 +131,9 @@ Now you can walk away. The assistant runs the transcription in the background. W
 </p>
 <p align="center"><sub>Live progress streams right into Claude Code's “Shell details” — current stage, % and ETA update as it runs (even while diarization is quiet).</sub></p>
 
-When it finishes, the assistant opens the result and shows you the speakers it found. For each one you get:
+When it finishes, the assistant adds validated punctuation to punctuation-free
+output and opens the reading version, preserving the raw files. It also shows
+you the speakers it found. For each one you get:
 - A **short voice clip** (~10 seconds, click play in the chat / your editor — `<audio>` is embedded right in the Markdown).
 - **Three sample sentences** with timestamps.
 
@@ -136,8 +146,10 @@ Each recording becomes a self-contained, portable folder next to your input file
 ```
 your-meeting.transcript/      ← move/zip/sync this whole folder; nothing breaks
 ├── your-meeting.md           ← the transcript (H1 title + frontmatter)
+├── your-meeting.punctuated.md ← optional host-AI reading version
 └── data/
     ├── transcript.json       ← rich machine-readable sidecar (per-word confidence, speakers)
+    ├── transcript.punctuated.json ← optional punctuation copy, raw words/times retained
     └── speaker-1.wav …       ← one ≤10 s voice clip per speaker, embedded in the MD
 ```
 
@@ -168,13 +180,26 @@ Then point your second-brain tool (Obsidian, Cognee, mem0, Notion AI, …) at th
 - Heavy background music or three+ people speaking simultaneously degrades speaker boundaries.
 - Apple Silicon strongly recommended. Intel Macs work but are ~3× slower; Linux works (no macOS notification, no MLX fast-mode).
 - First run downloads ~3 GB of models — plan accordingly on metered connections.
-- Languages other than English and Russian are auto-detected and transcribed, but speaker recognition quality hasn't been benchmarked specifically per language.
+- Diarization routing is shared across languages. A real Russian call and synthetic English/German dialogues were checked; quality has not been measured against human speaker labels across all languages.
+- Nemotron handles at most eight speakers. Use `--diarizer pyannote` for larger groups, `--speakers N`, or known-voice enrollment.
+- Host-AI punctuation takes extra chat time/tokens and can affect interpretation. It does not repair ASR spelling or speaker errors, and is absent from unattended CLI-only runs.
 
 ---
 
 ## Advanced — for power users
 
 Everything below is optional. The slash command flow above is what 99% of people need.
+
+See [local backend notes](references/local-backends.md) for Apple Silicon routing,
+model limits and installation. The October 2026 Oscar test compared five-minute
+clips using the same Mac; GigaAM v3 RNNT + Nemotron processed 31:00–36:00 in
+31.3 s, versus 416.8 s for the original CPU large-v3 + pyannote pipeline (13.3×).
+This is a speed measurement, not a ground-truth WER/DER accuracy claim. RNNT
+provides Russian spelling without punctuation; the AI driving the skill restores
+punctuation and sentence case in a separate readable version, with a validator
+that preserves words, numbers and speaker/timing evidence. No extra API key or
+model is needed. See [host-AI punctuation](references/punctuation.md).
+Retain full Whisper for ASR review.
 
 ### Run the bash directly
 
@@ -184,11 +209,14 @@ bash scripts/transcribe.sh <media-file> [--fast] [--speakers N] [--lang XX] [--m
 
 | Flag | Meaning |
 |---|---|
-| (default) | Accuracy mode — whisperX large-v3 on CPU + pyannote diarization. Real per-step progress for diarization. |
-| `--fast` | MLX (Apple GPU) transcription. Faster but coarser speaker boundaries; no per-step diarize progress on this path. |
+| (default) | `--lang ru` with installed bundle: GigaAM v3 RNNT. Otherwise WhisperX large-v3-turbo on Apple Silicon. Nemotron 3 when installed, else pyannote MPS/CPU. |
+| `--fast` | Experimental MLX/native timing; review phrase completeness on Russian audio. |
+| `--accurate` | Full large-v3 with the original WhisperX decoder and forced alignment. |
+| `--asr gigaam3` | Optional Russian GigaAM v3 E2E CTC on MPS. |
+| `--diarizer auto/pyannote/nemotron` | Explicit local diarizer selection. Nemotron supports up to eight voices; enrollment/count hints use pyannote. |
 | `--speakers N` | Hint the number of speakers (helps pyannote when audio is short or noisy). Default: auto. |
 | `--lang XX` | Force ISO language code (`en`, `ru`, `de`, …). Default: auto-detect. |
-| `--model M` | Override the whisper model. Default: `large-v3`. |
+| `--model M` | Override the Whisper/GigaAM3 model. Explicit model overrides select WhisperX unless `--asr` is supplied. |
 | `--bootstrap` | Just create the venv, don't transcribe. |
 | `--status <file>` | Print a one-line progress summary (cheap to poll). |
 | `--watch <file>` | Full-screen TUI watcher (run in a side terminal). |
@@ -214,6 +242,8 @@ Pick the channel that fits your workflow. All read the same source of truth (`*.
 | **`*.transcript.log`** | `tail -f /path/to/file.transcript.log` | Raw whisperX + pyannote output, including each per-segment `Transcript: [start --> end] text` line and each `diarize/<step> N% (X/Y)` progress event. |
 
 ### Performance — how long will it take?
+
+> The following factors describe the historical CPU large-v3 + pyannote path. New backend measurements are in [local backends](references/local-backends.md); calibration is kept separately by pipeline.
 
 **Rule of thumb: a 1-hour recording takes roughly 1 hour on an M4 Max, ~1.5 h on an M2 Max, ~2 h on an M1.** First run is slower (~5 min one-time model download); after that, the skill auto-calibrates to your machine's actual speed and the next ETA is anchored to *your* measured rate.
 
@@ -244,11 +274,12 @@ Intel and unknown CPUs fall back to `2.0×`. Linux works (degraded: no macOS not
 ### How it works
 
 1. `transcribe.sh` extracts the input to 16 kHz mono WAV via ffmpeg.
-2. `transcribe_whisperx.py` calls whisperX with `verbose=True`, which prints `Transcript: [start --> end] text` per segment as it's decoded.
-3. The wrapper bypasses whisperX's `DiarizationPipeline` and calls `pyannote.audio.Pipeline` directly with a custom `TextProgressHook` so each pyannote sub-step (`segmentation`, `embeddings`, `clustering`, `speaker_counting`, `discrete_diarization`) reports its real `completed/total` counters as plain text.
+2. `transcribe_whisperx.py` runs the selected ASR backend (GigaAM, WhisperX, or experimental MLX). It retains word timing and emits segment progress where the backend supports it.
+3. The shared resolver selects Nemotron or pyannote independently of language. Nemotron runs through the local native CLI; pyannote runs with `TextProgressHook` so its sub-steps report real `completed/total` counters. Both feed word-level speaker assignment, short-turn reconciliation and uncertainty flags.
 4. A bash ticker scans the log every 5 s and writes the canonical `*.progress.json`.
 5. All monitoring surfaces read that one JSON.
 6. On exit, `json_to_md.py` turns the JSON into Markdown inside `<title>.transcript/`, ffmpeg cuts one ≤10 s WAV clip per speaker into its `data/` folder for the embedded `<audio>` players, the JSON sidecar is copied there too, and `update_index.py` upserts the recording into `.scriba/index.json`. See [`references/file-layout.md`](./references/file-layout.md).
+7. When an AI is driving the skill, it can restore punctuation through `punctuate.py` and render a separate reading version using the existing clips. This step is outside the local pipeline and its ETA.
 
 ## License
 
@@ -257,17 +288,21 @@ Source & issues: <https://github.com/AlexanderAbramovPav/scriba>
 
 Runtime dependencies (whisperX, pyannote.audio, faster-whisper, CTranslate2, OpenAI Whisper, ffmpeg) are installed locally, not vendored. Their licenses are catalogued in [`THIRD_PARTY_LICENSES.md`](./THIRD_PARTY_LICENSES.md).
 
-**One model has an attribution clause**: the default diarization pipeline `pyannote/speaker-diarization-community-1` is [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). If you redistribute output produced with this skill, include a short attribution:
+**Pyannote attribution**: when using `pyannote/speaker-diarization-community-1`, retain its [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/) attribution:
 
 > Speaker diarization powered by [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) by Hervé Bredin / pyannoteAI, licensed under CC-BY-4.0.
 
 ## Acknowledgments
 
-This skill is glue around four excellent OSS projects:
+Scriba builds on these projects:
 
 - [**whisperX**](https://github.com/m-bain/whisperX) — Max Bain et al. — word-level alignment + diarization orchestration on top of faster-whisper.
 - [**pyannote.audio**](https://github.com/pyannote/pyannote-audio) — Hervé Bredin et al. — neural speaker diarization.
 - [**faster-whisper**](https://github.com/SYSTRAN/faster-whisper) — SYSTRAN — the actual ASR engine, CTranslate2-backed.
 - [**OpenAI Whisper**](https://github.com/openai/whisper) — OpenAI — the acoustic model.
+- [**GigaAM**](https://github.com/salute-developers/GigaAM) — Salute developers — Russian speech recognition.
+- [**sherpa-onnx**](https://github.com/k2-fsa/sherpa-onnx) — ONNX ASR runtime.
+- [**NeMo-Speech.cpp**](https://github.com/NVIDIA/NeMo-Speech.cpp) and [**Nemotron 3 Diarization**](https://huggingface.co/nvidia/Nemotron-3-Diarization) — NVIDIA — native speaker diarization.
+- [**MLX Whisper**](https://github.com/ml-explore/mlx-examples/tree/main/whisper) — experimental Apple GPU ASR.
 
 And on [`uv`](https://github.com/astral-sh/uv) (Astral) for the bootstrap, and [`ffmpeg`](https://ffmpeg.org/) for everything audio-shaped.

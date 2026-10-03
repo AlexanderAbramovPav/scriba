@@ -13,7 +13,7 @@ Versions captured from a clean bootstrap on Apple Silicon, June 2026.
 | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) | latest of 1.x | MIT | [LICENSE](https://github.com/SYSTRAN/faster-whisper/blob/master/LICENSE) | The actual ASR engine, underneath whisperX. |
 | [CTranslate2](https://github.com/OpenNMT/CTranslate2) | 4.x | MIT | [LICENSE](https://github.com/OpenNMT/CTranslate2/blob/master/LICENSE) | Inference backend for faster-whisper (int8 quantization on CPU). |
 | [OpenAI Whisper](https://github.com/openai/whisper) (model weights) | `large-v3` | MIT | [LICENSE](https://github.com/openai/whisper/blob/main/LICENSE) | Acoustic model weights distributed by OpenAI. |
-| [whisply](https://github.com/transcriptionTeam/whisply) | 0.14.x | MIT | upstream README | Optional — only used by `--fast` (MLX) path. The default CPU path bypasses whisply and calls whisperX directly. |
+| [whisply](https://github.com/transcriptionTeam/whisply) | 0.14.x | MIT | upstream README | Legacy bootstrap dependency; runtime now calls the shared wrapper directly. |
 
 ## Gated HuggingFace model weights (downloaded with the user's HF token)
 
@@ -71,3 +71,17 @@ The MIT-licensed dependencies each require their license text and copyright noti
 - **`ffmpeg` + `ffprobe`** ([LGPL/GPL hybrid](https://ffmpeg.org/legal.html), depending on build). Used by `transcribe.sh` for audio normalization and by `whisperx.load_audio` internally. Install via Homebrew / apt — this skill does not bundle ffmpeg.
 - **`uv`** ([MIT/Apache-2.0](https://github.com/astral-sh/uv/blob/main/LICENSE-MIT)). Used for venv creation and pip installs. Install via the official uv installer.
 - **Python 3.10+** (PSF License). Standard distribution.
+
+## Additional local backends (October 2026)
+
+| Component | Tested version | License | Upstream |
+|---|---|---|---|
+| MLX / mlx-whisper | 0.31.2 / 0.4.3 | MIT | <https://github.com/ml-explore/mlx-examples/tree/main/whisper> |
+| GigaAM native package/models | 0.2.0, v3 E2E CTC | MIT | <https://github.com/salute-developers/GigaAM> |
+| sherpa-onnx | local installed runtime | Apache-2.0 | <https://github.com/k2-fsa/sherpa-onnx> |
+| GigaAM v3 RNNT ONNX | 2025-12-16 bundle | MIT | bundle LICENSE / GigaAM upstream |
+| NeMo-Speech.cpp | 0.2.0 Metal | Apache-2.0 | <https://github.com/NVIDIA/NeMo-Speech.cpp> |
+| Nemotron 3 Diarization | pinned native model index revision f667ed73aee57d40cc39428eb768b4fd87a0a29e | NVIDIA Open Model License (OpenMDW 1.1) | <https://huggingface.co/nvidia/Nemotron-3-Diarization> |
+
+Weights and the native runtime are installed outside this repository and are not
+vendored in Scriba. The native archive includes its upstream license notices.

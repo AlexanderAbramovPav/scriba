@@ -166,6 +166,10 @@ def main():
     ap.add_argument("--clips-rel", default="data",
                     help="directory (relative to the MD) holding the voice clips and the JSON "
                          "sidecar — embedded `<audio src=…>` paths are computed from it.")
+    ap.add_argument("--data-file", default="transcript.json",
+                    help="JSON sidecar filename under --clips-rel.")
+    ap.add_argument("--reuse-clips", action="store_true",
+                    help="Embed existing voice clips from --media-dir without regenerating them.")
     a = ap.parse_args()
 
     data = json.loads(pathlib.Path(a.input).read_text(encoding="utf-8"))
@@ -192,8 +196,11 @@ def main():
     out.append(f"speakers_detected: {len(order)}")
     # Pointers into the portable per-recording folder (C6): the JSON sidecar and the
     # voice clips both live under <clips-rel>/ next to this MD.
-    out.append(f"data: {a.clips_rel}/transcript.json")
+    out.append(f"data: {a.clips_rel}/{a.data_file}")
     out.append(f"clips: {a.clips_rel}/")
+    punctuation = data.get("postprocessing", {}).get("punctuation")
+    if punctuation:
+        out.append("punctuation: host-ai (words preserved)")
     out.append("---\n")
 
     out.append(f"# {title}\n")
@@ -214,6 +221,9 @@ def main():
                 rel = f"{a.clips_rel}/speaker-{spk_idx}.wav"
                 out.append("")
                 out.append(f'<audio controls preload="none" src="{rel}"></audio>')
+        elif a.reuse_clips and media_dir and (media_dir / f"speaker-{spk_idx}.wav").is_file():
+            out.append("")
+            out.append(f'<audio controls preload="none" src="{a.clips_rel}/speaker-{spk_idx}.wav"></audio>')
         out.append("")
         out.append("Sample utterances:")
         for s in samples(segs, spk):

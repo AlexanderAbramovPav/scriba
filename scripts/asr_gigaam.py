@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Optional GigaAM-RU ASR backend via sherpa-onnx (C5b).
+"""GigaAM v3 RNNT Russian ASR via sherpa-onnx.
 
-Whisper large-v3 stays the default; GigaAM is opt-in for Russian (~-50% WER).
+The shell selects it for --lang ru when the bundle is installed without overrides.
 normalize_segments() maps sherpa-onnx recognition output to the whisperX shape so
 C1 reconciliation + diarization word-assignment work unchanged.
 
@@ -51,7 +51,7 @@ def chars_to_words(tokens, timestamps, durations=None):
     return words
 
 
-def normalize_segments(raw):
+def normalize_segments(raw, character_tokens=False):
     """Map sherpa-onnx output to {segments:[{start,end,text,words[]}], needs_alignment}.
 
     Handles both character-level streams (GigaAM: separator tokens present → grouped
@@ -61,7 +61,7 @@ def normalize_segments(raw):
     durs = raw.get("durations") or []
     text = (raw.get("text") or "").strip()
     if tokens and ts and len(tokens) == len(ts):
-        if any(_is_sep(t) for t in tokens):
+        if character_tokens or any(_is_sep(t) for t in tokens):
             words = chars_to_words(tokens, ts, durs)            # GigaAM char stream
         else:
             words = [{"word": tok, "start": round(float(ts[i]), 3),
@@ -89,6 +89,7 @@ def _encoder_path(mdir):
 
 def transcribe(audio_path, mdir=None):  # pragma: no cover - needs sherpa-onnx + model
     import sherpa_onnx, soundfile as sf
+    from faster_whisper.vad import get_speech_timestamps, VadOptions
     mdir = mdir or model_dir()
     recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
         encoder=_encoder_path(mdir), decoder=f"{mdir}/decoder.onnx",
@@ -97,13 +98,32 @@ def transcribe(audio_path, mdir=None):  # pragma: no cover - needs sherpa-onnx +
     samples, sr = sf.read(audio_path, dtype="float32")
     if getattr(samples, "ndim", 1) > 1:
         samples = samples[:, 0]
-    s = recognizer.create_stream()
-    s.accept_waveform(sr, samples)
-    recognizer.decode_stream(s)
-    r = s.result
-    return normalize_segments({"text": r.text, "tokens": list(getattr(r, "tokens", [])),
-                               "timestamps": list(getattr(r, "timestamps", [])),
-                               "durations": list(getattr(r, "durations", []))})
+    if sr != 16000:
+        raise ValueError("GigaAM requires the pipeline's 16 kHz WAV")
+    spans = get_speech_timestamps(samples, VadOptions(
+        max_speech_duration_s=20, min_silence_duration_ms=300, speech_pad_ms=200))
+    segments, needs_alignment = [], False
+    for span in spans:
+        s = recognizer.create_stream()
+        s.accept_waveform(sr, samples[span["start"]:span["end"]])
+        recognizer.decode_stream(s)
+        r = s.result
+        start, end = span["start"] / sr, span["end"] / sr
+        part = normalize_segments({"text": r.text, "tokens": list(getattr(r, "tokens", [])),
+                                   "timestamps": list(getattr(r, "timestamps", [])),
+                                   "durations": list(getattr(r, "durations", []))}, character_tokens=True)
+        needs_alignment = needs_alignment or part["needs_alignment"]
+        for seg in part["segments"]:
+            if not seg["text"]:
+                continue
+            seg["start"], seg["end"] = start, end
+            for word in seg["words"]:
+                word["start"] = round(word["start"] + start, 3)
+                word["end"] = round(word["end"] + start, 3)
+                word["score"] = None  # this recognizer exposes timing, not calibrated confidence
+            segments.append(seg)
+        print(f"Transcript: [{start:.3f} --> {end:.3f}] {r.text}", flush=True)
+    return {"segments": segments, "needs_alignment": needs_alignment}
 
 
 if __name__ == "__main__":  # pragma: no cover

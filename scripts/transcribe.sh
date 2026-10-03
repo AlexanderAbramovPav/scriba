@@ -46,16 +46,23 @@ Usage: transcribe.sh <media-file> [--fast] [--speakers N] [--lang XX] [--model M
        transcribe.sh --status <media-file>     # one-line progress (cheap to poll, AI-friendly)
        transcribe.sh --watch  <media-file>     # live TUI in this terminal (humans, no AI tokens)
 
-  default: accuracy mode (whisperX large-v3 on CPU + pyannote diarization)
-  --fast        : MLX (GPU) transcription, coarser speaker boundaries
+  default: Russian with installed GigaAM = GigaAM v3 RNNT; otherwise
+           WhisperX large-v3-turbo on Apple Silicon, large-v3 elsewhere.
+           All languages: Nemotron 3 if installed, else pyannote (MPS when available).
+  --fast        : experimental MLX GPU + native word timestamps (review completeness)
+  --accurate    : original full large-v3 WhisperX decoder + forced alignment
   --speakers N  : hint number of speakers (default: auto)
   --enroll "Name=clip.wav,..." : pre-name speakers matched to known voices
   --lang XX     : force language (default: auto-detect)
-  --model M     : whisper model (default: large-v3)
-  --asr whisperx|gigaam : ASR backend (default: whisperx). gigaam = Russian-only,
-                  opt-in (sherpa-onnx GigaAM-RU, ~-50% WER vs Whisper on RU); requires
-                  one-time setup (see references/setup.md). Auto-selected when
-                  --lang ru AND env SCRIBA_RU_GIGAAM=1. Ignored on the --fast/MLX path.
+  --model M     : ASR model (Whisper or GigaAM3; GigaAM ONNX uses SCRIBA_GIGAAM_DIR)
+  --diarizer auto|nemotron|pyannote : local speaker model (default: auto)
+  --diar-device auto|cpu|mps|cuda : separate diarization device (default: auto)
+  --alignment forced|native : MLX word timing (default: forced)
+  --asr auto|mlx|whisperx|gigaam|gigaam3 : ASR backend. gigaam3 = GigaAM v3 on GPU,
+                  Russian-only, native word timing, --model v3_e2e_ctc (default).
+                  gigaam = GigaAM v3 RNNT via sherpa-onnx (Russian-only).
+                  Auto-selected with --lang ru when its bundle is installed
+                  and no glossary/model override is requested (see references/setup.md).
   --out-dir DIR : output directory (default: alongside input)
   --title "<name>" : human title for the output folder/file/H1 (use when the source
                   filename is generic, e.g. zoom_0 / GMT20260605-120000 / recording)
@@ -147,7 +154,7 @@ stage_help = {
     'extract': 'extracting audio (ffmpeg)',
     'transcribe': 'transcribing (whisperX streams segments)',
     'align': 'word-level alignment (whisperX)',
-    'diarize': 'speaker diarization (pyannote) — silent step, no per-token output',
+    'diarize': 'speaker diarization (Nemotron / pyannote)',
     'finalize': 'rendering Markdown',
     'done': 'finished',
 }.get(stage, stage)
@@ -228,40 +235,57 @@ fi
 [[ $# -ge 1 && -f "${1:-}" ]] || usage
 
 INPUT="$1"; shift
-DEVICE="cpu"; MODEL="large-v3"; SPEAKERS=""; LANG=""; OUTDIR="$(dirname "$INPUT")"; TITLE=""; ASR="whisperx"
+DEVICE="cpu"; MODEL=""; SPEAKERS=""; LANG=""; OUTDIR="$(dirname "$INPUT")"; TITLE=""; ASR="auto"
+DIARIZER="auto"; DIAR_DEVICE="auto"; ALIGNMENT="forced"; ASR_EXPLICIT=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --fast) DEVICE="mlx"; shift;;
+    --fast) ASR="mlx"; ASR_EXPLICIT=1; ALIGNMENT="native"; shift;;
+    --accurate) ASR="whisperx"; ASR_EXPLICIT=1; MODEL="large-v3"; ALIGNMENT="forced"; shift;;
     --speakers) SPEAKERS="$2"; shift 2;;
     --enroll) ENROLL="$2"; shift 2;;
     --lang) LANG="$2"; shift 2;;
     --model) MODEL="$2"; shift 2;;
-    --asr) ASR="$2"; shift 2;;
+    --asr) ASR="$2"; ASR_EXPLICIT=1; shift 2;;
+    --diarizer) DIARIZER="$2"; shift 2;;
+    --diar-device) DIAR_DEVICE="$2"; shift 2;;
+    --alignment) ALIGNMENT="$2"; shift 2;;
     --out-dir) OUTDIR="$2"; shift 2;;
     --title|--name) TITLE="$2"; shift 2;;
     *) echo "Unknown arg: $1" >&2; usage;;
   esac
 done
 
-# Auto-select GigaAM-RU only when Russian is FORCED and the opt-in env is set, and
-# the caller didn't already pick a backend. GigaAM is RU-only (~-50% WER vs Whisper);
-# the default stays whisperX large-v3. The MLX/--fast path is Whisper-only (no MLX
-# GigaAM path) and is handled by the DEVICE==mlx branch below.
-if [[ "${ASR:-whisperx}" == "whisperx" && "$LANG" == "ru" && "${SCRIBA_RU_GIGAAM:-0}" == "1" ]]; then
+if [[ "$ASR_EXPLICIT" == "0" && "$LANG" == "ru" && "${SCRIBA_RU_GIGAAM:-0}" == "1" ]]; then
   ASR="gigaam"
 fi
+if [[ "$ASR" == "auto" ]]; then
+  GIGA_DIR="${SCRIBA_GIGAAM_DIR:-$HOME/.cache/scriba/gigaam}"
+  if [[ "$LANG" == "ru" && -z "$MODEL" && -f "$GIGA_DIR/decoder.onnx" && -f "$GIGA_DIR/joiner.onnx" && -f "$GIGA_DIR/tokens.txt" ]] \
+     && { [[ -f "$GIGA_DIR/encoder.int8.onnx" ]] || [[ -f "$GIGA_DIR/encoder.onnx" ]]; } \
+     && [[ -z "$(python3 "$SKILL_DIR/scripts/glossary.py" --resolve "$OUTDIR" 2>/dev/null || true)" ]]; then
+    ASR="gigaam"
+  else
+    ASR="whisperx"
+  fi
+fi
+if [[ "$ASR" == "mlx" ]]; then DEVICE="mlx"; MODEL="${MODEL:-large-v3-turbo}";
+elif [[ "$ASR" == "gigaam3" ]]; then MODEL="${MODEL:-v3_e2e_ctc}";
+elif [[ "$ASR" == "gigaam" ]]; then MODEL="gigaam-v3-rnnt-int8";
+elif [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then MODEL="${MODEL:-large-v3-turbo}";
+else MODEL="${MODEL:-large-v3}"; fi
+case "$ASR" in mlx|whisperx|gigaam|gigaam3) ;; *) echo "ERROR: invalid --asr: $ASR" >&2; exit 2;; esac
+case "$DIARIZER" in auto|nemotron|pyannote) ;; *) echo "ERROR: invalid --diarizer: $DIARIZER" >&2; exit 2;; esac
+case "$DIAR_DEVICE" in auto|cpu|mps|cuda) ;; *) echo "ERROR: invalid --diar-device: $DIAR_DEVICE" >&2; exit 2;; esac
+case "$ALIGNMENT" in forced|native) ;; *) echo "ERROR: invalid --alignment: $ALIGNMENT" >&2; exit 2;; esac
 
 bootstrap  # idempotent
+if [[ "$ASR" == "gigaam3" ]] && ! "$PY" -c 'import gigaam' >/dev/null 2>&1; then
+  uv pip install --python "$PY" --no-deps 'gigaam @ git+https://github.com/salute-developers/GigaAM.git@7447938d791c4f3e643386ee22c33777004293a5'
+  uv pip install --python "$PY" 'hydra-core==1.3.*' soundfile sentencepiece
+fi
 
 TMP="$(mktemp -d)"
-ANNOTATE=(); HF_ARGS=()
-if [[ -f "$HF_TOKEN_FILE" ]]; then
-  ANNOTATE=(-a); HF_ARGS=(-hf "$(cat "$HF_TOKEN_FILE")")
-else
-  echo "WARN: no HF token at $HF_TOKEN_FILE — running WITHOUT speaker separation." >&2
-fi
-[[ -n "$SPEAKERS" ]] && SPK_ARGS=(-num "$SPEAKERS") || SPK_ARGS=()
-[[ -n "$LANG" ]] && LANG_ARGS=(-l "$LANG") || LANG_ARGS=()
+mkdir -p "$OUTDIR"
 
 INPUT_ABS="$(cd "$(dirname "$INPUT")" && pwd)/$(basename "$INPUT")"
 STEM="$(basename "${INPUT%.*}")"
@@ -281,7 +305,12 @@ fi
 
 # Chip detection (macOS) + factor from eta_helper.py (chip table → calibration cache override).
 CHIP="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo unknown)"
-FACTOR_INFO="$(python3 "$ETA_HELPER" factor "$DEVICE" "$MODEL" "$CHIP" "$CALIB_FILE" 2>/dev/null || echo "5.0|fallback|error")"
+DIAR_ARGS=(--backend "$DIARIZER")
+[[ -n "$SPEAKERS" ]] && DIAR_ARGS+=(--num-speakers "$SPEAKERS")
+[[ -n "${ENROLL:-}" ]] && DIAR_ARGS+=(--enroll "$ENROLL")
+DIAR_PROFILE="$("$PY" "$SKILL_DIR/scripts/diarize_nemotron.py" "${DIAR_ARGS[@]}")"
+ETA_MODEL="$MODEL:$ASR:$DIAR_PROFILE:$DIAR_DEVICE:$ALIGNMENT"
+FACTOR_INFO="$(python3 "$ETA_HELPER" factor "$DEVICE" "$ETA_MODEL" "$CHIP" "$CALIB_FILE" 2>/dev/null || echo "5.0|fallback|error")"
 FACTOR="$(echo "$FACTOR_INFO" | cut -d'|' -f1)"
 ETA_SOURCE="$(echo "$FACTOR_INFO" | cut -d'|' -f2)"
 CHIP_LABEL="$(echo "$FACTOR_INFO" | cut -d'|' -f3)"
@@ -470,28 +499,18 @@ echo "transcribe" > "$STAGE_FILE"
 echo "[2/3] Transcribing ($DEVICE, $MODEL) — live output: tail -f \"$LOG\"" >&2
 
 JSON="$TMP/audio.json"
-if [[ "$DEVICE" == "mlx" ]]; then
-  # MLX path: whisperX-py has no native MLX backend, so we keep whisply for --fast.
-  # No real per-segment streaming, but MLX is fast enough that progress matters less.
-  # The fast path can't apply enrollment or glossary biasing (those live on the
-  # accuracy/whisperX path) — warn rather than silently ignore them.
-  if [[ -n "${ENROLL:-}" ]] || [[ -n "$(python3 "$SKILL_DIR/scripts/glossary.py" --resolve "$OUTDIR" 2>/dev/null)" ]]; then
-    echo "WARN: --enroll and glossary biasing are NOT applied on the --fast/MLX path; drop --fast to use them." >&2
-  fi
-  ( cd "$TMP" && KMP_DUPLICATE_LIB_OK=TRUE "$WHISPLY" run \
-      -f "$AUDIO" -o "$TMP" -m "$MODEL" --device "$DEVICE" --export json \
-      ${ANNOTATE[@]+"${ANNOTATE[@]}"} ${HF_ARGS[@]+"${HF_ARGS[@]}"} \
-      ${SPK_ARGS[@]+"${SPK_ARGS[@]}"} ${LANG_ARGS[@]+"${LANG_ARGS[@]}"} ) 2>&1 | tee -a "$LOG" \
-    || echo "WARN: whisply exited non-zero (often the cosmetic path-print bug); checking for JSON..." >&2
-  JSON="$(find "$TMP" -name '*.json' | head -1)"
-else
-  # CPU path: call whisperX directly via our wrapper. verbose=True emits
-  # `Transcript: [<start> --> <end>] <text>` for each segment as it's decoded —
-  # the ticker parses this for REAL audio_position_sec, hardware-independent.
-  WRAP_ARGS=(--audio "$AUDIO" --output "$JSON" --model "$MODEL" --device "$DEVICE" --batch-size 1 --asr "$ASR")
+  # Shared path retains glossary, word reconciliation, confidence and enrollment.
+  # MLX runs ASR on Apple GPU; the alignment device remains CPU.
+  ALIGN_DEVICE="${DEVICE/mlx/cpu}"
+  WRAP_ARGS=(--audio "$AUDIO" --output "$JSON" --model "$MODEL" --device "$ALIGN_DEVICE" --batch-size 1 --asr "$ASR"
+             --diarizer "$DIAR_PROFILE" --diar-device "$DIAR_DEVICE" --alignment "$ALIGNMENT")
   [[ -n "$LANG" ]] && WRAP_ARGS+=(--language "$LANG")
   if [[ -f "$HF_TOKEN_FILE" ]]; then
-    WRAP_ARGS+=(--annotate --hf-token "$(cat "$HF_TOKEN_FILE")")
+    WRAP_ARGS+=(--annotate --hf-token-file "$HF_TOKEN_FILE")
+  elif [[ "$DIAR_PROFILE" == "nemotron" ]]; then
+    WRAP_ARGS+=(--annotate)
+  else
+    echo "WARN: no HF token or Nemotron runtime — running WITHOUT speaker separation." >&2
   fi
   [[ -n "$SPEAKERS" ]] && WRAP_ARGS+=(--num-speakers "$SPEAKERS")
   [[ -n "${ENROLL:-}" ]] && WRAP_ARGS+=(--enroll "$ENROLL")
@@ -503,8 +522,7 @@ else
   # so the `Transcript: [...]` per-segment lines pile up in a 4 KB buffer and
   # only flush at process exit — defeating the whole point of streaming progress.
   PYTHONUNBUFFERED=1 "$PY" -u "$SKILL_DIR/scripts/transcribe_whisperx.py" "${WRAP_ARGS[@]}" 2>&1 | tee -a "$LOG" \
-    || echo "WARN: wrapper exited non-zero; checking for JSON..." >&2
-fi
+    || { echo "ERROR: transcription/diarization failed; see $LOG" >&2; exit 3; }
 
 [[ -n "$JSON" && -f "$JSON" ]] || { echo "ERROR: transcription produced no JSON" >&2; exit 3; }
 
@@ -520,9 +538,10 @@ DATA_DIR="$REC_DIR/data"
 mkdir -p "$DATA_DIR"
 REC_ID="$OUT_STEM-$START_TS"
 OUT="$REC_DIR/$OUT_STEM.md"
+DISPLAY_MODEL="$("$PY" -c 'import json,sys; p=json.load(open(sys.argv[1])).get("pipeline",{}); print("{} ({}; {})".format(p.get("model","unknown"),p.get("asr","unknown"),p.get("diarizer","none")))' "$JSON")"
 "$PY" "$SKILL_DIR/scripts/json_to_md.py" "$JSON" \
   --source "$(basename "$INPUT")" --title "$OUT_STEM" --id "$REC_ID" \
-  --model "$MODEL (whisperX+pyannote)" \
+  --model "$DISPLAY_MODEL" \
   --audio "$INPUT_ABS" --media-dir "$DATA_DIR" --clips-rel "data" \
   > "$OUT"
 cp "$JSON" "$DATA_DIR/transcript.json" 2>/dev/null || true
@@ -545,7 +564,7 @@ WARMUP_SEC=0
 TRANSCRIBE_EL=$(( EL - WARMUP_SEC ))
 [[ $TRANSCRIBE_EL -lt 1 ]] && TRANSCRIBE_EL=$EL  # fallback if warmup wasn't detected
 if [[ $AUDIO_SEC -ge 60 && $TRANSCRIBE_EL -gt 10 ]]; then
-  python3 "$ETA_HELPER" record "$DEVICE" "$MODEL" "$AUDIO_SEC" "$TRANSCRIBE_EL" "$CALIB_FILE" 2>/dev/null || true
+  python3 "$ETA_HELPER" record "$DEVICE" "$ETA_MODEL" "$AUDIO_SEC" "$TRANSCRIBE_EL" "$CALIB_FILE" 2>/dev/null || true
 fi
 
 echo "done" > "$STAGE_FILE"

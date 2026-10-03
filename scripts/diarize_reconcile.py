@@ -40,15 +40,19 @@ def split_segment_by_speaker(segment, min_blip_sec: float = 0.4):
         return [segment]
 
     smoothed = smooth_blips(words, min_blip_sec=min_blip_sec)
-    out, cur = [], None
+    out, cur, pending = [], None, []
     for w in smoothed:
         spk = w.get("speaker")
         w_start = w.get("start")
         w_end = w.get("end")
         if spk is None or w_start is None:
-            # attach stray token (punctuation) to the current run's text
+            # Preserve unalignable numbers and leading tokens. They must not
+            # disappear simply because the aligner could not time a word.
             if cur is not None and w.get("word"):
                 cur["_tokens"].append(w["word"])
+                cur["_words"].append(w)
+            else:
+                pending.append(w)
             continue
         # whisperX assigns a speaker to unalignable tokens (e.g. numbers) that
         # carry start but NO end. Treat missing/None end as equal to start so the
@@ -59,7 +63,9 @@ def split_segment_by_speaker(segment, min_blip_sec: float = 0.4):
             if cur is not None:
                 out.append(_finish(cur))
             cur = {"speaker": spk, "start": w_start, "end": w_end,
-                   "_tokens": [w["word"]], "_words": [w]}
+                   "_tokens": [p["word"] for p in pending if p.get("word")] + [w["word"]],
+                   "_words": pending + [w]}
+            pending = []
         else:
             cur["end"] = max(cur["end"], w_end)
             cur["_tokens"].append(w["word"])

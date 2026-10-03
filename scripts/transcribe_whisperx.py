@@ -7,8 +7,7 @@ Replaces the `whisply run` CLI call for the CPU path so we can:
 - keep alignment + pyannote diarization,
 - emit a JSON whose shape json_to_md.py already groks (flat whisperX form).
 
-MLX (`--fast`) still routes through whisply because whisperX-py doesn't have
-a native MLX backend.
+MLX ASR shares the same alignment, speaker assignment, enrollment and renderer.
 """
 from __future__ import annotations
 
@@ -39,6 +38,7 @@ warnings.filterwarnings("ignore")
 os.environ.setdefault("PYTHONWARNINGS", "ignore")
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 logging.getLogger("pyannote").setLevel(logging.ERROR)
 logging.getLogger("speechbrain").setLevel(logging.ERROR)
 # Lightning 2.x split the package: legacy `pytorch_lightning` AND new `lightning.pytorch.*`.
@@ -155,13 +155,14 @@ def diarization_backend_ok(version_str: str) -> tuple[bool, str]:
 
 
 def main() -> int:
+    started = time.perf_counter()
+    timings = {}
     import whisperx  # heavy; deferred so this module imports cleanly for unit tests (see top note)
     ap = argparse.ArgumentParser()
     ap.add_argument("--audio", required=True, help="path to 16kHz mono WAV")
     ap.add_argument("--output", required=True, help="path to write result JSON")
-    ap.add_argument("--model", default="large-v3")
-    ap.add_argument("--asr", default="whisperx", choices=["whisperx", "gigaam"],
-                    help="ASR backend. gigaam = Russian-optimized (sherpa-onnx), opt-in.")
+    ap.add_argument("--model", default=None)
+    ap.add_argument("--asr", default="whisperx", choices=["whisperx", "gigaam", "gigaam3", "mlx"])
     ap.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
     ap.add_argument("--language", default=None)
     ap.add_argument("--batch-size", type=int, default=1,
@@ -169,34 +170,100 @@ def main() -> int:
                          "Larger values can be faster on GPU but stall progress until the batch finishes.")
     ap.add_argument("--glossary", default=None,
                     help="comma-separated bias terms (initial_prompt/hotwords)")
-    ap.add_argument("--annotate", action="store_true", help="run pyannote diarization after transcription")
+    ap.add_argument("--annotate", action="store_true", help="run speaker diarization after transcription")
     ap.add_argument("--hf-token", default=None)
+    ap.add_argument("--hf-token-file", default=None, help="read HF token locally without putting it in process arguments")
     ap.add_argument("--num-speakers", type=int, default=None)
+    ap.add_argument("--diarizer", choices=["auto", "pyannote", "nemotron"], default="auto")
+    ap.add_argument("--diar-device", choices=["auto", "cpu", "mps", "cuda"], default="auto")
+    ap.add_argument("--alignment", choices=["forced", "native"], default="forced",
+                    help="MLX: forced wav2vec alignment (default) or faster native word timing")
     ap.add_argument("--enroll", default=None,
                     help='comma list "Name=clip.wav" to match known voices')
     args = ap.parse_args()
+    if args.num_speakers is not None and args.num_speakers <= 0:
+        ap.error("--num-speakers must be positive")
+    if args.hf_token_file:
+        args.hf_token = Path(args.hf_token_file).read_text().strip()
+    args.model = args.model or ("v3_e2e_ctc" if args.asr == "gigaam3" else (
+        "gigaam-v3-rnnt-int8" if args.asr == "gigaam" else "large-v3"))
+    asr_started = time.perf_counter()
+    diarizer_used = "none"
+    alignment_used = "forced"
+    import diarize_nemotron
+    try:
+        selected_diarizer = diarize_nemotron.select_backend(
+            args.diarizer, num_speakers=args.num_speakers, enroll=args.enroll)
+    except (ValueError, FileNotFoundError) as exc:
+        ap.error(str(exc))
+    use_nemotron = selected_diarizer == "nemotron"
 
     # ASR backend selection. The default whisperX path is below as the `else`; the
     # opt-in GigaAM-RU path is model-dependent (sherpa-onnx + ONNX bundle) and so is
     # excluded from coverage. BOTH branches must define `audio`, `audio_sec`,
     # `language`, and `result` so the shared diarization/reconcile/confidence code
     # below runs unchanged.
-    if args.asr == "gigaam":  # pragma: no cover - needs sherpa-onnx + GigaAM model
+    if args.asr == "gigaam3":  # pragma: no cover - requires GigaAM weights
+        if args.language not in (None, "ru"):
+            ap.error("GigaAM3 is Russian-only; select --asr mlx or whisperx for other languages")
+        if args.glossary:
+            log("WARN: GigaAM3 greedy decoding does not support glossary biasing")
+        import asr_gigaam3
+        audio = whisperx.load_audio(args.audio)
+        audio_sec = len(audio) / 16000.0
+        log(f"transcribing (GigaAM3, {args.model})")
+        result = asr_gigaam3.transcribe(args.audio, args.model)
+        language = "ru"
+        alignment_used = "native"
+        timings["asr"] = round(time.perf_counter() - asr_started, 3)
+    elif args.asr == "mlx":  # pragma: no cover - requires Apple Silicon
+        import asr_mlx
+        audio = whisperx.load_audio(args.audio)
+        audio_sec = len(audio) / 16000.0
+        log(f"transcribing (MLX GPU, {args.model})")
+        result = asr_mlx.transcribe(audio, args.model, args.language, args.glossary,
+                                   word_timestamps=args.alignment == "native")
+        language = result.get("language") or args.language or "en"
+        alignment_used = "native"
+        timings["asr"] = round(time.perf_counter() - asr_started, 3)
+        # Release MLX's cached model before PyTorch alignment/diarization.
+        import mlx.core as mx
+        from mlx_whisper.transcribe import ModelHolder
+        ModelHolder.model = None
+        mx.clear_cache()
+        if args.alignment == "forced":
+            alignment_started = time.perf_counter()
+            log("loading alignment model")
+            try:
+                with Heartbeat("alignment in progress"):
+                    align_model, metadata = whisperx.load_align_model(language_code=language, device=args.device)
+                    result = whisperx.align(result["segments"], align_model, metadata, audio, args.device,
+                                            return_char_alignments=False)
+                del align_model
+                alignment_used = "forced"
+                log(f"alignment done: {len(result.get('segments', []))} aligned segments")
+            except Exception as e:
+                alignment_used = "none"
+                log(f"WARN: alignment failed ({type(e).__name__}: {e}); using unaligned MLX segments")
+            timings["alignment"] = round(time.perf_counter() - alignment_started, 3)
+    elif args.asr == "gigaam":  # pragma: no cover - needs sherpa-onnx + GigaAM model
         import asr_gigaam
+        if args.language not in (None, "ru"):
+            ap.error("GigaAM is Russian-only; select Whisper for other languages")
+        if args.glossary:
+            log("WARN: GigaAM greedy decoding does not support glossary biasing")
         log(f"loading audio: {args.audio}")
         audio = whisperx.load_audio(args.audio)
         audio_sec = len(audio) / 16000.0
         log(f"GigaAM-RU ASR (sherpa-onnx) on {audio_sec:.1f}s ({audio_sec/60:.1f}m)")
         ga = asr_gigaam.transcribe(args.audio)
+        timings["asr"] = round(time.perf_counter() - asr_started, 3)
         language = args.language or "ru"
         if ga.get("needs_alignment"):
+            alignment_started = time.perf_counter()
             log("GigaAM gave no word timestamps; aligning text with wav2vec")
-            # normalize_segments emits start=end=0.0 when no timestamps; whisperx.align
-            # crops audio[int(start*SR):int(end*SR)] per segment, so a zero-width window
-            # would starve the aligner. Widen to span the whole recording first.
-            for seg in ga["segments"]:
-                seg["start"] = 0.0
-                seg["end"] = audio_sec
+            # VAD supplied valid per-chunk bounds even if the recognizer could
+            # not time words. Do not widen every chunk to the entire recording.
             try:
                 with Heartbeat("alignment in progress"):
                     align_model, metadata = whisperx.load_align_model(
@@ -209,8 +276,11 @@ def main() -> int:
             except Exception as e:  # mirror the whisperX path: degrade, don't crash
                 log(f"WARN: GigaAM alignment failed ({type(e).__name__}: {e}); using unaligned segments")
                 result = {"segments": ga["segments"]}
+                alignment_used = "none"
+            timings["alignment"] = round(time.perf_counter() - alignment_started, 3)
         else:
             result = {"segments": ga["segments"]}
+            alignment_used = "native"
             log(f"GigaAM done: {len(result.get('segments', []))} word-timestamped segments")
     else:
         compute_type = "int8" if args.device == "cpu" else "float16"
@@ -220,6 +290,7 @@ def main() -> int:
             device=args.device,
             compute_type=compute_type,
             language=args.language,
+            asr_options={"initial_prompt": args.glossary, "hotwords": args.glossary} if args.glossary else None,
         )
 
         log(f"loading audio: {args.audio}")
@@ -233,16 +304,8 @@ def main() -> int:
         # larger batches buffer them until the batch finishes.
         log("transcribing (verbose: each segment streams as decoded)")
         transcribe_kwargs = dict(batch_size=args.batch_size, verbose=True, print_progress=True)
-        if args.glossary:
-            transcribe_kwargs["initial_prompt"] = args.glossary
-            # faster-whisper >=1.0 also accepts hotwords; only pass if the signature supports it.
-            try:
-                import inspect
-                if "hotwords" in inspect.signature(model.transcribe).parameters:
-                    transcribe_kwargs["hotwords"] = args.glossary
-            except (ValueError, TypeError):
-                pass
         result = model.transcribe(audio, **transcribe_kwargs)
+        timings["asr"] = round(time.perf_counter() - asr_started, 3)
         language = result.get("language") or args.language or "en"
         raw_segments = result.get("segments") or []
         log(f"transcribe done: {len(raw_segments)} segments · lang={language}")
@@ -251,6 +314,7 @@ def main() -> int:
         del model
 
         log("loading alignment model")
+        alignment_started = time.perf_counter()
         try:
             with Heartbeat("alignment in progress"):
                 align_model, metadata = whisperx.load_align_model(language_code=language, device=args.device)
@@ -267,6 +331,8 @@ def main() -> int:
         except Exception as e:  # pragma: no cover - alignment is best-effort
             log(f"WARN: alignment failed ({type(e).__name__}: {e}); using unaligned segments")
             result = {"segments": raw_segments, "language": language}
+            alignment_used = "none"
+        timings["alignment"] = round(time.perf_counter() - alignment_started, 3)
 
     # Overlap-aware turns drive the C2 confidence signals. Default empty so the
     # enrichment below is well-defined even when diarization is skipped/no token.
@@ -277,7 +343,7 @@ def main() -> int:
     # TypeError from issue #3. Read the version cheaply (importlib.metadata, no torch import) and
     # surface an actionable message. The bootstrap self-heals; this guard is the belt to that braces.
     diar_ready, diar_msg = True, ""
-    if args.annotate and args.hf_token:
+    if args.annotate and args.hf_token and not use_nemotron:
         import importlib.metadata as _ilm
         try:
             _pa_ver = _ilm.version("pyannote.audio")
@@ -285,7 +351,18 @@ def main() -> int:
             _pa_ver = "0"
         diar_ready, diar_msg = diarization_backend_ok(_pa_ver)
 
-    if args.annotate and args.hf_token and diar_ready:
+    diar_started = time.perf_counter()
+    if args.annotate and use_nemotron:
+        log("diarizing (nvidia/Nemotron-3-Diarization)")
+        # An explicitly selected backend must fail clearly, never publish a
+        # plausible-looking single-speaker transcript after failed diarization.
+        overlap_turns = diarize_nemotron.diarize(args.audio, args.diar_device)
+        import pandas as pd
+        diarize_df = pd.DataFrame(overlap_turns, columns=["start", "end", "speaker"])
+        result = whisperx.assign_word_speakers(diarize_df, result)
+        diarizer_used = "nemotron-3"
+        log(f"diarization done: {len(set(t[2] for t in overlap_turns))} speakers")
+    elif args.annotate and args.hf_token and diar_ready:
         log("diarizing (pyannote/speaker-diarization-community-1)")
         try:
             # We bypass whisperX's `DiarizationPipeline.__call__` because it doesn't pass
@@ -302,10 +379,14 @@ def main() -> int:
                 # pyannote.audio 4.x default pipeline. Model is CC-BY-4.0 (attribution
                 # required); see THIRD_PARTY_LICENSES.md. Users must accept the gate at
                 # https://huggingface.co/pyannote/speaker-diarization-community-1 once.
+                diar_device = args.diar_device
+                if diar_device == "auto":
+                    diar_device = "mps" if torch.backends.mps.is_available() else args.device
+                log(f"pyannote device: {diar_device}")
                 pa_pipeline = PyannotePipeline.from_pretrained(
                     "pyannote/speaker-diarization-community-1",
                     token=args.hf_token,
-                ).to(torch.device(args.device))
+                ).to(torch.device(diar_device))
 
             audio_data = {
                 "waveform": torch.from_numpy(audio[None, :]),
@@ -318,7 +399,15 @@ def main() -> int:
             # No outer Heartbeat here — the hook provides finer-grained progress lines,
             # so we don't need the fallback heartbeat noise.
             with TextProgressHook() as hook:
-                diarization = pa_pipeline(audio_data, hook=hook, **pa_kwargs)
+                try:
+                    diarization = pa_pipeline(audio_data, hook=hook, **pa_kwargs)
+                except (RuntimeError, NotImplementedError):
+                    if args.diar_device != "auto" or diar_device != "mps":
+                        raise
+                    log("MPS diarization unavailable; retrying pyannote on CPU")
+                    pa_pipeline.to(torch.device("cpu"))
+                    diarization = pa_pipeline(audio_data, hook=hook, **pa_kwargs)
+            diarizer_used = "pyannote-community-1"
 
             # pyannote.audio 4 + community-1 returns a `DiarizeOutput` wrapper with
             # `.speaker_diarization` (the legacy Annotation), `.exclusive_speaker_diarization`,
@@ -377,16 +466,19 @@ def main() -> int:
                 except Exception as e:  # pragma: no cover
                     log(f"WARN: enrollment skipped ({type(e).__name__}: {e})")
         except Exception as e:
-            log(f"WARN: diarization failed ({type(e).__name__}: {e}); continuing without speaker labels")
+            raise RuntimeError(f"pyannote diarization failed ({type(e).__name__}: {e})") from e
     elif args.annotate and args.hf_token and not diar_ready:
-        log(f"WARN: {diar_msg}; continuing without speaker labels")
+        raise RuntimeError(diar_msg)
     elif args.annotate and not args.hf_token:
         log("WARN: --annotate requested but no --hf-token; skipping diarization")
+    timings["diarization"] = round(time.perf_counter() - diar_started, 3)
 
     # C1: split segments at word-level speaker changes (word-accurate attribution).
     try:
         import diarize_reconcile
-        result = diarize_reconcile.reconcile(result)
+        # Short replies ("да", "yes", "ja") are genuine turns in any language. Do not
+        # erase them purely because one word lasts less than 400 ms.
+        result = diarize_reconcile.reconcile(result, min_blip_sec=0.0)
         log(f"reconciled: {len(result.get('segments', []))} single-speaker segments")
     except Exception as e:  # pragma: no cover
         log(f"WARN: reconciliation skipped ({type(e).__name__}: {e})")
@@ -409,6 +501,10 @@ def main() -> int:
         "audio_duration_sec": round(audio_sec, 3),
         "low_confidence_pct": result.get("low_confidence_pct", 0.0),
         "segments": result.get("segments", []),
+        "pipeline": {"asr": args.asr, "model": args.model, "diarizer": diarizer_used,
+                     "alignment": alignment_used},
+        "timings_sec": {**timings, "total": round(time.perf_counter() - started, 3)},
+        "diarization_turns": [{"start": s, "end": e, "speaker": spk} for s, e, spk in overlap_turns],
     }
     import jsonsafe
     Path(args.output).write_text(

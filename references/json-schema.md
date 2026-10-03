@@ -42,7 +42,7 @@ own uncertainty so downstream consumers can weight spans accordingly.
 | `word` | string | The token. |
 | `start` | float | Word start (sec). May be absent when alignment failed for that word. |
 | `end` | float | Word end (sec). |
-| `asr_conf` | float ∈ [0,1] | whisperX/faster-whisper **alignment score** for the word (passed through). Lower = the acoustic match is weaker. |
+| `asr_conf` | float ∈ [0,1] or null | Forced-alignment score, or MLX native word probability; these are different signals. Null when the ASR backend provides no score (GigaAM3). |
 | `overlap` | bool | True if the word's `[start, end)` intersects a region where **≥2 speakers** are simultaneously active. |
 | `speaker_conf` | float ∈ [0,1] | **Attribution margin**: fraction of the word covered by its assigned speaker minus the best competing speaker. `1.0` = word sits fully inside its speaker's turn; `0.0` = fully contested. |
 
@@ -61,3 +61,25 @@ When summarizing, quoting, or attributing statements from this sidecar:
   avoid quoting them verbatim or pinning a quote to a specific speaker.
 - Use `low_confidence_pct` as a quick gauge of the whole transcript's reliability
   before relying on it heavily.
+
+## Local pipeline metadata
+
+`pipeline` records the ASR backend/model, diarizer actually used, and alignment mode.
+`timings_sec` records ASR, alignment (when run), diarization and total processing
+seconds. Model downloads and first Metal shader compilation can increase these.
+`diarization_turns` is the raw overlap-aware diarizer output (`start`, `end`, `speaker`),
+before word assignment; use it for DER evaluation against a checked RTTM reference.
+
+## Optional host-AI punctuation copy
+
+`data/transcript.json` remains the raw ASR sidecar. A separate
+`data/transcript.punctuated.json` contains edited segment `text` and the original
+in `segments[].raw_text`. Speakers, times, flags, word records and acoustic
+scores are unchanged: `words[].word` is still raw ASR spelling, not punctuated
+display text. The matching `.punctuated.md` points to this sidecar and reuses
+the existing voice clips.
+
+`postprocessing.punctuation` records `method: "host-ai"`,
+`validation: "words-numbers-symbols-preserved"`, the raw source's `source_sha256`,
+and `word_text: "raw-asr"`. This is a content-preservation check, not a
+punctuation accuracy score. ASR/diarization timing excludes host-AI processing.

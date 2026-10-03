@@ -9,8 +9,10 @@ without breaking the embedded audio. The Markdown and its assets travel together
 <recordings-dir>/
 ├── <title>.transcript/          # one folder per recording — self-contained, portable
 │   ├── <title>.md               # the human-facing transcript (H1 title + frontmatter)
+│   ├── <title>.punctuated.md     # optional host-AI reading version (raw transcript kept)
 │   └── data/                    # everything the MD points at, via RELATIVE paths
 │       ├── transcript.json      # rich machine-readable sidecar (per-word confidence, overlap, speakers)
+│       ├── transcript.punctuated.json # optional validated punctuation copy
 │       └── speaker-1.wav …      # one ≤10 s voice clip per speaker, for ID-by-ear
 └── .scriba/                     # hidden corpus state, shared across all recordings here
     ├── index.json               # AI navigation index — one entry per recording
@@ -31,7 +33,7 @@ id: q3-planning-sync-1717603200   # stable index key (<stem>-<epoch>)
 source: zoom_0.mp4                # original filename, preserved
 date: 2026-06-05
 duration: 00:42:10
-model: large-v3 (whisperX+pyannote)
+model: large-v3-turbo (whisperx; nemotron-3)
 language: en
 low_confidence_pct: 3.1          # present only when computed (C2)
 speakers_detected: 3

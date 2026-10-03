@@ -177,9 +177,14 @@ def run(clip):  # pragma: no cover  (model-dependent end-to-end path)
 
     with open(sidecar, "r", encoding="utf-8") as fh:
         data = json.load(fh)
+    # Raw turns include overlap and speech missed by ASR. Older sidecars only
+    # have transcript segments; retain that compatibility fallback.
+    source_turns = data.get("diarization_turns", data.get("segments", []))
+    if not source_turns:
+        raise RuntimeError("No diarization turns produced; cannot score DER")
     hyp_turns = [
         (float(seg["start"]), float(seg["end"]), str(seg.get("speaker") or "UNK"))
-        for seg in data.get("segments", [])
+        for seg in source_turns
         if seg.get("start") is not None and seg.get("end") is not None
     ]
 

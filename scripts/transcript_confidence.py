@@ -72,16 +72,18 @@ def enrich_segments(segments, turns):
             if w.get("start") is None or w.get("end") is None:
                 continue
             total_words += 1
-            w["asr_conf"] = round(float(w.get("score", 1.0)), 3)
+            score = w.get("score")
+            w["asr_conf"] = round(float(score), 3) if score is not None else None
+            low_asr = score is not None and float(score) < LOW_ASR
             w["overlap"] = word_in_overlap(w["start"], w["end"], regions)
             if has_turns:
                 w["speaker_conf"] = speaker_confidence(
                     w["start"], w["end"], seg.get("speaker") or w.get("speaker"), turns)
-                low = w["overlap"] or w["asr_conf"] < LOW_ASR or w["speaker_conf"] < LOW_SPK
+                low = w["overlap"] or low_asr or w["speaker_conf"] < LOW_SPK
                 seg_shaky = seg_shaky or w["speaker_conf"] < LOW_SPK
             else:
                 w["speaker_conf"] = 1.0
-                low = w["overlap"] or w["asr_conf"] < LOW_ASR
+                low = w["overlap"] or low_asr
             if low:
                 flagged += 1
             seg_overlap = seg_overlap or w["overlap"]

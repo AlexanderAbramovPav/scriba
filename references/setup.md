@@ -13,7 +13,7 @@
    umask 077; printf '%s\n' '<YOUR_TOKEN>' > ~/.config/scriba/hf_token
    ```
 
-Without the token, transcription still works but there is **no speaker separation**.
+Nemotron 3 runs without a token when `nemo-speech` is installed. The HF setup is needed only for pyannote (fallback, enrollment, or an exact speaker-count hint).
 
 ## Install (auto on first run)
 
@@ -35,25 +35,30 @@ diarization stack to the tested baseline** `whisperx>=3.8.6` + `pyannote.audio>=
 
 ## Engine / modes
 
-- whisply auto-selects the backend; `--annotate` (speaker diarization) always routes through
-  **whisperX + pyannote** for word-level timestamps, which on Apple Silicon runs on **CPU**.
-- Default mode = accuracy (`--device cpu`, large-v3). `--fast` = MLX (GPU) transcription.
+Read [local backends](local-backends.md) for the current routing and installation.
+Russian with an installed ONNX bundle uses GigaAM v3 RNNT with native word
+timestamps and bounded VAD chunks. Other/auto languages use WhisperX turbo on
+Apple Silicon. `--accurate` preserves the full original Whisper decoder;
+`--fast` is experimental MLX and showed phrase omissions on Oscar audio.
+All paths share word-level diarization, reconciliation and Markdown rendering.
+Nemotron is the preferred local diarizer for all languages when installed;
+pyannote uses MPS/CPU. Language selection affects ASR, not diarizer selection.
 
-## Optional: GigaAM-RU backend (Russian only, opt-in)
+## Optional: GigaAM v3 RNNT backend (Russian only)
 
-GigaAM (salute-developers, Apache/MIT) is SOTA for Russian ASR — roughly **-50% WER vs
-Whisper large-v3 on RU**. We run it through **sherpa-onnx** as a light ONNX transducer
+GigaAM v3 (salute-developers, MIT) is a Russian ASR model. We run it through
+**sherpa-onnx** as a light ONNX transducer
 (no NeMo runtime): the ONNX runtime + a ~240M model bundle, much lighter than full NeMo.
-The default whisperX path is untouched; GigaAM is strictly opt-in and **Russian-only**.
+GigaAM is **Russian-only**. Once its bundle is installed, `--lang ru` selects it unless a glossary, model override or explicit other backend is requested.
 
 ### How to enable
 
 - Explicit: `bash transcribe.sh <file> --lang ru --asr gigaam`
-- Auto: force Russian and set the opt-in env — `SCRIBA_RU_GIGAAM=1 bash transcribe.sh <file> --lang ru`
-  (the wrapper auto-selects `gigaam` only when both `--lang ru` and `SCRIBA_RU_GIGAAM=1`).
+- Auto: `bash transcribe.sh <file> --lang ru` after installing the bundle,
+  without a glossary or explicit model override. `SCRIBA_RU_GIGAAM=1` remains
+  supported for legacy callers; explicit `--asr` takes precedence.
 
-The `--fast`/MLX path stays Whisper — there is no MLX GigaAM path. Diarization
-(pyannote community-1), C1 reconcile, C2 confidence, and C3 enrollment all run unchanged.
+The `--fast`/MLX path stays Whisper. GigaAM uses Nemotron or pyannote for diarization. Native GigaAM3 CTC on MPS is also available as an explicit option; see local-backends.md.
 
 ### One-time setup
 
@@ -111,13 +116,6 @@ with `speaker` like `SPEAKER_00`. The chunk-level `speaker` is absent/None.
 among its words (carrying the previous speaker forward for unlabeled chunks). It also still
 supports the flat whisperX shape (`{"segments": [...]}` with per-segment `speaker`).
 
-## Known cosmetic bug
-
-whisply crashes at the end with `ValueError: ... is not in the subpath of ...` when the output
-dir is not under the launch cwd (it prints `filepath.relative_to(cwd)`). The JSON is already
-written before that print. `transcribe.sh` works around it by running whisply from inside the
-output dir and tolerating a non-zero exit as long as a JSON file was produced.
-
 ## Dependency baseline (v0.1.0)
 
 Tested on M4 Max with the following versions:
@@ -129,9 +127,7 @@ Tested on M4 Max with the following versions:
 - VAD/segmentation model: `pyannote/segmentation-3.0` (MIT, gated on HF)
 - ASR model: `large-v3` (MIT, OpenAI Whisper)
 
-The default CPU path runs whisperX directly via `scripts/transcribe_whisperx.py`. The MLX
-`--fast` path still goes through `whisply` if it's installed (whisply hasn't tracked
-pyannote v4 yet — that's why we don't rely on it for the diarization path).
+All ASR backends now run through `scripts/transcribe_whisperx.py`; whisply remains in the legacy bootstrap dependency set but is no longer used to run MLX.
 
 ## torchcodec warning
 
