@@ -1,6 +1,6 @@
 # Contributing to scriba
 
-Thanks for taking a look. This is a small, focused skill — a bash + Python wrapper around whisperX and pyannote — so the contribution surface is intentionally narrow. The most impactful PR you can send is **a new chip's measured `factor` for the speed benchmark table**; second most is a clean bug report with reproducible state.
+Thanks for taking a look. This is a small, focused skill — a bash + Python pipeline around local ASR and diarization backends — so the contribution surface is intentionally narrow. The most impactful PR you can send is **a reproducible measurement for a specific hardware/backend profile**; second most is a clean bug report with reproducible state.
 
 ## Code of conduct
 
@@ -15,14 +15,14 @@ Open a GitHub issue. The more of the following you can include, the faster the b
 - **Python + key package versions**:
   ```bash
   <skill>/.venv/bin/python --version
-  <skill>/.venv/bin/pip list | grep -iE "^(pyannote.audio|whisperx|faster-whisper|torch|transformers) "
+  uv pip list --python <skill>/.venv/bin/python
   ```
 - **Input** — length of the source file (`ffprobe -v error -show_entries format=duration -of csv=p=0 <file>`) and any unusual properties (mixed languages, very long single utterances, music in the background, …). **Do not attach the source audio unless you're sure it's distributable** — privacy first.
 - **The progress snapshot at failure** — `cat <stem>.transcript.progress.json`.
 - **The last 50 lines of the log** — `tail -50 <stem>.transcript.log`. Strip any transcript text you don't want public.
 - **Steps to reproduce** — the exact `transcribe.sh …` invocation, with all flags.
 
-If you can reproduce on a small synthetic clip (e.g. a 15 s ffmpeg-generated tone or a public-domain recording), include that.
+If you can reproduce on a small synthetic clip (e.g. a short locally synthesized dialogue or a public-domain recording), include that.
 
 ## Suggesting features
 
@@ -35,26 +35,33 @@ Open an issue first; PRs without prior discussion may be rejected if they don't 
 
 Things it should do well and where contributions are very welcome:
 
-- More accurate factors for non-M-series CPUs (Intel Macs, Linux x86, ARM Linux).
+- Profile-specific measurements for other chips/CPUs, with initialization and timing scope stated.
 - Recipes for additional statuslines in `references/statusline-integration.md`.
-- Better handling of pyannote.audio v4 once `community-1` has a clearer license path (see `references/setup.md`).
+- Better handling of local diarizer/model errors and tested setup on other platforms.
 - Bug fixes in `scripts/json_to_md.py` for edge cases in the whisperX/whisply JSON shapes.
 
-## Contributing speed-benchmark data for a new chip
+## Contributing performance data
 
-This is the most valuable contribution path because the table in `README.md` is anchored to a single observed M4 Max run plus rough scaling. Real measurements from real hardware are gold.
+The [current README](README.md#performance--how-long-will-it-take) reports measured
+runs for named profiles, not a chip-wide speed guarantee. The legacy chip table
+in `eta_helper.py` is an initial ETA heuristic and should not be tuned from an
+unrelated fast backend.
 
-1. Run `bash scripts/transcribe.sh <file>` on at least **60 seconds of audio** (preferably 5+ minutes — longer = warmup amortizes better) on the chip you want to characterize. Use the **default** flags (no `--fast`) so the measurement covers the full transcribe + align + diarize pipeline.
-2. After it finishes, your calibration cache has the observed factor:
-   ```bash
-   cat ~/.config/scriba/calibration.json
-   ```
-3. Open a PR that:
-   - Adds an entry to `scripts/eta_helper.py` `CHIP_FACTORS_CPU` for your chip key (the substring of `sysctl -n machdep.cpu.brand_string` that matches your chip, e.g. `"M3 Max"`, `"Intel Core i7-13700K"`).
-   - Adds the same row to the table in `README.md` under "Performance — Apple Silicon CPU benchmark" (or extend the section for non-Apple chips).
-   - In the PR description: paste the calibration cache JSON, your chip string, the audio length, the wall-clock you observed, and Python + pyannote.audio + whisperX versions used.
-
-I'll merge a one-line PR fast; the more data points, the more accurate the ETA on first run for everyone.
+1. Use at least 60 s of audio, preferably several minutes. Record the language,
+   duration, audio format, exact CLI flags, chip/RAM and package/runtime versions.
+2. State the actual backend/model/device from `data/transcript.json` `pipeline`,
+   whether weights were already cached, and whether initialization or concurrent
+   work affected timing. `timings_sec.total` covers the Python pipeline, not
+   extraction, Markdown/clip rendering or host-AI punctuation.
+3. For comparisons, run profiles sequentially on the same input and hardware.
+   The original CPU comparison can be selected with `--accurate --diarizer pyannote
+   --diar-device cpu`. Repeat enough times to characterize variability if you
+   report a typical rate; label a single observation as such.
+4. Include the profile's calibration entry and/or an anonymized timing record.
+   Do not publish audio, transcripts or voice references without permission.
+5. Update the dated benchmark record/backend notes in a PR with the evidence.
+   A WER/DER claim additionally needs checked verbatim text/speaker labels;
+   output speaker counts or disagreement with another model are not accuracy.
 
 ## Local development
 
@@ -67,7 +74,7 @@ cd scriba
 bash scripts/transcribe.sh --bootstrap
 
 # pytest isn't a runtime dep — install it once for the dev venv
-.venv/bin/pip install pytest
+uv pip install --python .venv/bin/python pytest numpy
 
 # run unit tests
 .venv/bin/python -m pytest tests/ -v
@@ -76,7 +83,10 @@ bash scripts/transcribe.sh --bootstrap
 bash scripts/transcribe.sh /path/to/short-clip.mp4
 ```
 
-The tests cover `json_to_md.py` (whisply JSON shape → markdown) and `rename_speakers.py` (Speaker label substitution). New scripts should have a matching test if they have non-trivial logic.
+The unit suite covers rendering/renaming, JSON evidence, backend routing,
+word/speaker preservation, enrollment helpers and punctuation guards. It runs
+with only pytest/numpy; it does not download or evaluate ML models. Use a
+separate real-audio smoke test when changing inference behavior.
 
 ## Code style
 

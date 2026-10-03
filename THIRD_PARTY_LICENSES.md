@@ -26,7 +26,7 @@ Versions captured from a clean bootstrap on Apple Silicon, June 2026.
 
 ### CC-BY-4.0 attribution for `pyannote/speaker-diarization-community-1`
 
-If you ship transcripts produced with this skill (or build a product on top of it), include the following attribution in user-visible documentation, an "About" page, or a NOTICE/CREDITS section:
+Suggested credit when documenting a setup that uses this model (consult the linked license for applicable requirements):
 
 > Speaker diarization powered by [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) by Hervé Bredin / pyannoteAI, licensed under [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/).
 
@@ -70,7 +70,7 @@ The MIT-licensed dependencies each require their license text and copyright noti
 - **`bash`** — shell. Distributed with macOS / Linux.
 - **`ffmpeg` + `ffprobe`** ([LGPL/GPL hybrid](https://ffmpeg.org/legal.html), depending on build). Used by `transcribe.sh` for audio normalization and by `whisperx.load_audio` internally. Install via Homebrew / apt — this skill does not bundle ffmpeg.
 - **`uv`** ([MIT/Apache-2.0](https://github.com/astral-sh/uv/blob/main/LICENSE-MIT)). Used for venv creation and pip installs. Install via the official uv installer.
-- **Python 3.10+** (PSF License). Standard distribution.
+- **Python 3.12** (PSF License). The bootstrap creates this runtime through uv.
 
 ## Additional local backends (October 2026)
 
@@ -81,7 +81,7 @@ The MIT-licensed dependencies each require their license text and copyright noti
 | sherpa-onnx | local installed runtime | Apache-2.0 | <https://github.com/k2-fsa/sherpa-onnx> |
 | GigaAM v3 RNNT ONNX | 2025-12-16 bundle | MIT | bundle LICENSE / GigaAM upstream |
 | NeMo-Speech.cpp | 0.2.0 Metal | Apache-2.0 | <https://github.com/NVIDIA/NeMo-Speech.cpp> |
-| Nemotron 3 Diarization | pinned native model index revision f667ed73aee57d40cc39428eb768b4fd87a0a29e | NVIDIA Open Model License (OpenMDW 1.1) | <https://huggingface.co/nvidia/Nemotron-3-Diarization> |
+| Nemotron 3 Diarization | pinned native model index revision f667ed73aee57d40cc39428eb768b4fd87a0a29e | OpenMDW 1.1 | <https://huggingface.co/nvidia/Nemotron-3-Diarization> |
 
 Weights and the native runtime are installed outside this repository and are not
 vendored in Scriba. The native archive includes its upstream license notices.

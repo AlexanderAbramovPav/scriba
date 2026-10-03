@@ -1,84 +1,108 @@
-# ETA model — how the wall-clock estimate is computed
+# ETA and performance measurements
 
-There are **two regimes**:
+The measured backend comparison is in
+[README Performance](../README.md#performance--how-long-will-it-take) and
+[the dated measurement record](../benchmarks/local-performance-2026-10-03.json).
+This file describes the ETA code, including its remaining legacy heuristics.
+An ETA heuristic is not a benchmark for the selected model.
 
-1. **Live observed rate** (default CPU path, once the first segment lands). The wrapper `scripts/transcribe_whisperx.py` runs whisperX with `verbose=True`, so each finished segment prints `Transcript: [start --> end] text` to the log. The ticker takes the latest `end` as the real audio position and extrapolates:
-   ```
-   eta_remaining = (audio_sec − audio_position) × transcribe_elapsed / audio_position
-   ```
-   This is hardware-independent — no chip table, no factor, just real-time observation of the user's actual machine. Reported as `eta_source: observed` and `audio_source: measured`.
+## Calibration and its key
 
-2. **Predicted from chip factor** (used for: the initial banner ETA before any segment lands; the warmup window before `→ transcribing` appears in the log; and the entire MLX `--fast` path because whisperX-py has no MLX backend and whisply doesn't stream per-segment timestamps). Linear model:
-   ```
-   wall_clock ≈ warmup + audio_sec × factor
-   ```
-   - **warmup** — model load + lang detect; observed at runtime when `→ transcribing` first appears.
-   - **factor** — wall-clock seconds per second of audio during transcribe + annotate. From the chip table → calibration cache.
+`transcribe.sh` looks up `~/.config/scriba/calibration.json` (or `CALIB_FILE`).
+Entries are keyed by:
 
-The ticker switches from regime (2) to regime (1) the moment any `Transcript: [...]` line shows up — typically within 10–30 s of the transcribe stage starting.
+```
+<ASR device>:<model>:<ASR backend>:<resolved diarizer>:<diarizer device>:<alignment option>
+```
 
-## Where the factor comes from
+For example, GigaAM/Nemotron and full WhisperX/pyannote CPU do not share an
+entry. Language is not a separate key. After a successful run with at least
+60 s of audio and more than 10 s of recorded processing, the script records
+`(local CLI elapsed - detected warmup) / audio_sec`. This includes remaining
+local extraction/finalization work; it is not the same scope as the Python
+`timings_sec.total` benchmark. If warmup was not detected, full elapsed time
+is used. Later runs blend the old and new factor with an EMA (new weight 0.4).
 
-The script picks `factor` in this priority order:
+The cache overrides the initial chip heuristic for that profile. It remains an
+estimate: content, silence, speaker count, competing processes, initialization
+and alignment-model availability can change the observed rate.
 
-1. **Calibration cache** (`~/.config/scriba/calibration.json`). Written automatically at the end of every successful run **≥ 60 s of audio**, using `(elapsed − warmup) / audio_sec` so the recorded factor is the pure per-audio-second rate and isn't skewed by warmup overhead. On the next run it overrides the chip table. After the first real run on a machine, the ETA is anchored to *that machine's* observed rate; subsequent runs blend in with an EMA (alpha 0.4).
-2. **Chip table** in `scripts/eta_helper.py`. Indexed by the brand string returned by `sysctl -n machdep.cpu.brand_string` (e.g. `Apple M4 Max`).
-3. **Fallback** of `2.0×` for CPUs that don't match any chip key (incl. Intel Macs).
+## Initial estimates — legacy values, not current-model benchmarks
 
-For `--fast` (MLX) the chip table is bypassed entirely — a single `0.5×` factor is used, again refined by the cache.
+Before profile calibration, `eta_helper.py` uses the following legacy CPU
+values or the experimental MLX value. They are retained in code for an initial
+banner estimate, not validated forecasts for GigaAM/Nemotron or WhisperX turbo.
+They can substantially overestimate a fast profile. No measured hour-long
+run or current cross-chip scaling is established by these values.
 
-## Chip table (CPU mode, whisperX large-v3 via `transcribe_whisperx.py` with int8 quant)
+| Chip | Legacy CPU factor |
+|---|---:|
+| M1 | 2.0 |
+| M1 Pro | 1.7 |
+| M1 Max | 1.5 |
+| M1 Ultra | 1.3 |
+| M2 | 1.7 |
+| M2 Pro | 1.5 |
+| M2 Max | 1.3 |
+| M2 Ultra | 1.2 |
+| M3 | 1.5 |
+| M3 Pro | 1.3 |
+| M3 Max | 1.2 |
+| M4 | 1.3 |
+| M4 Pro | 1.1 |
+| M4 Max | 1.0 |
+| Unmatched CPU | 2.0 |
+| Experimental MLX, any chip | 0.5 |
 
-Anchored to **one observed M4 Max run ≈ 1.0×** (5-min audio, ~5:24 wall-clock, Jun 2026, batch_size=1, int8 compute_type, full pipeline incl. diarization). Other chips scaled from relative CPU performance. These are **starting estimates only** — used for the very first banner ETA on a new machine; the calibration cache replaces them with the observed factor after the first ≥60 s run, and the live ticker switches to `eta_source: observed` (no factor at all) the moment the first `Transcript: [...]` line lands in the log.
+The initial banner uses `audio_sec * factor`. Once warmup is detected, the
+predicted estimate adds it. These defaults are not a claim that MLX is twice as
+fast on every Apple chip, or that an hour of current Russian ASR takes an hour.
 
-| Chip       | factor | rough wall-clock for 1 h audio |
-| ---------- | -----: | -----------------------------: |
-| M1         |  2.0×  |                           ~2 h |
-| M1 Pro     |  1.7×  |                        ~1.7 h |
-| M1 Max     |  1.5×  |                        ~1.5 h |
-| M1 Ultra   |  1.3×  |                        ~1.3 h |
-| M2         |  1.7×  |                        ~1.7 h |
-| M2 Pro     |  1.5×  |                        ~1.5 h |
-| M2 Max     |  1.3×  |                        ~1.3 h |
-| M2 Ultra   |  1.2×  |                        ~1.2 h |
-| M3         |  1.5×  |                        ~1.5 h |
-| M3 Pro     |  1.3×  |                        ~1.3 h |
-| M3 Max     |  1.2×  |                        ~1.2 h |
-| M4         |  1.3×  |                        ~1.3 h |
-| M4 Pro     |  1.1×  |                        ~1.1 h |
-| M4 Max     |  1.0×  |                           ~1 h |
-| MLX (any)  |  0.5×  |                          ~30 m |
+## Live audio progress and observed-rate ETA
 
-The old `whisply run` CLI path (pre-Jun 2026) was ~3× slower because it didn't quantize. If your chip isn't here, the script uses `2.0×` and writes a calibrated factor after the first ≥60 s run. Contributions welcome — open a PR with the (chip, observed factor) pair.
+The ticker refreshes the progress JSON every 5 s. It reads the latest
+`Transcript: [start --> end]` line from the selected backend as audio position.
+WhisperX, GigaAM chunks and MLX can supply segment output; output availability
+and buffering differ by backend.
 
-## What gets reported live
+The observed-rate ETA requires both an audio position above 5 s and the
+`→ transcribing` warmup marker. It extrapolates:
 
-Inside `<stem>.transcript.progress.json` (refreshed every 5 s):
+```
+remaining ≈ (audio_sec - audio_position) * decoding_elapsed / audio_position
+```
 
-| Field                  | Meaning |
-| ---------------------- | ------- |
-| `stage`                | init → extract → transcribe → finalize → done |
-| `elapsed_sec`          | wall-clock since the script started |
-| `audio_sec`            | total length of the input |
-| `audio_processed_sec`  | position inside the audio. **Real measurement** once the wrapper emits its first `Transcript: [...]` line; before that, extrapolated from the chip factor |
-| `audio_processed_pct`  | `audio_processed_sec / audio_sec × 100` |
-| `audio_source`         | `measured` (from a real `Transcript: [<s> --> <e>]` line) · `extrapolated` (factor × elapsed) |
-| `eta_total_sec`        | best current estimate of total wall-clock |
-| `eta_remaining_sec`    | `eta_total - elapsed` (clamped at 0) |
-| `pct`                  | `elapsed / eta_total × 100` (wall-clock progress, not audio progress) |
-| `warmup_sec`           | observed warmup; `0` until `→ transcribing` appears in the log |
-| `factor`               | factor in use (only meaningful when `audio_source = extrapolated`) |
-| `eta_source`           | `observed` (real audio rate) · `calibrated` (cache) · `chip_default` (table) · `fallback` (unknown chip) |
-| `chip`                 | resolved chip label, or `unknown CPU` |
+If those signals are absent, the calibrated/legacy factor is used. In
+particular, the RNNT wrapper currently logs `GigaAM-RU ASR` instead of the
+`→ transcribing` marker: audio position can be measured while ETA stays based
+on the factor. Do not promise an observed-rate ETA after every first segment.
 
-## Why "audio %" and "wall %" can disagree
+Alignment and diarization are later stages without a reliable completion ETA.
+Pyannote provides sub-step counters; Nemotron does not. Audio can reach 100%
+before the transcript is ready. The macOS `done` notification refers to the
+local CLI; host-AI punctuation runs separately and is not included.
 
-Until the log emits `→ transcribing`, audio_processed is `0` (we're still in model load + language detect — no audio has been touched yet), while wall_pct grows from 0 toward `warmup / eta_total`. Once whisperX emits its first `Transcript: [start --> end]` line — usually within 10–30 s of `→ transcribing` — `audio_processed_sec` flips to the real measured value, `audio_source` becomes `measured`, and `eta_source` becomes `observed`. After that the two percentages track tightly (`audio_pct` measures the audio side; `wall_pct` measures `elapsed/eta_total` and is recomputed against the observed rate, so they should agree within a few points unless the per-segment rate is wildly non-uniform).
+## Progress fields
 
-On the MLX path (`--fast`) and on any future tool that doesn't stream per-segment timestamps, `audio_processed_sec` stays extrapolated for the whole run — that's the only case where the chip factor still matters for the live %.
+| Field | Meaning |
+|---|---|
+| `stage` | `init`, `extract`, `transcribe`, `align`, `diarize`, `finalize`, `done` |
+| `stage_sec`, `elapsed_sec` | Current-stage and local-run elapsed time |
+| `audio_sec`, `audio_processed_sec`, `audio_processed_pct` | Input duration and decoded audio position/progress |
+| `audio_source` | `measured` from segment output/stage transition, or `extrapolated` |
+| `eta_total_sec`, `eta_remaining_sec`, `pct` | Current estimate and capped wall-clock percentage, not a completion guarantee |
+| `warmup_sec` | Detected warmup, zero if the marker was absent |
+| `factor`, `eta_source`, `chip` | Initial/cache rate; source is `observed`, `calibrated`, `chip_default`, or `fallback` |
+| `diarize_step`, `diarize_step_pct` | Pyannote sub-step when available; otherwise empty/zero |
+| `last_log`, `started_at` | Latest diagnostic line and run start timestamp |
 
-## Manual override / reset
+Success removes the diagnostic progress/log files. They are retained on failure.
+For portable output paths, use the script's final stdout line (the Markdown
+path) and [file layout](file-layout.md).
 
-- Force a specific factor: edit `scripts/eta_helper.py` `CHIP_FACTORS_CPU` or `CPU_FALLBACK`.
-- Wipe the calibration cache: `rm ~/.config/scriba/calibration.json` — the next run falls back to the chip table again.
-- Use a custom cache path: set `CALIB_FILE=/path/to/cache.json` in the environment.
+## Cache controls
+
+- Set `CALIB_FILE=/path/to/cache.json` to isolate another calibration file.
+- Remove your calibration cache to return to the legacy first-run estimates.
+- Changing `eta_helper.py` constants changes those initial heuristics only;
+  measured profile entries still take priority.

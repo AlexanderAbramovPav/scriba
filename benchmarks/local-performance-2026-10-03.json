@@ -1,0 +1,107 @@
+{
+  "date": "2026-10-03",
+  "hardware": {
+    "chip": "Apple M4 Max",
+    "cpu_cores": 14,
+    "ram_gb": 36
+  },
+  "comparison_input": {
+    "description": "Private Russian group-call excerpt, Oscar 31:00–36:00",
+    "duration_sec": 300,
+    "sample_rate_hz": 16000,
+    "channels": 1,
+    "distributed": false
+  },
+  "timing_scope": {
+    "included": [
+      "ASR",
+      "alignment when run",
+      "diarization",
+      "initialization inside Python wrapper"
+    ],
+    "excluded": [
+      "model downloads before timing",
+      "media extraction",
+      "Markdown and voice-clip rendering",
+      "host-AI punctuation"
+    ]
+  },
+  "limits": [
+    "Single observations, not repeated-run means.",
+    "No human-checked verbatim transcript or speaker RTTM; not WER/DER evidence.",
+    "No measured one-hour run or cross-chip speed projection.",
+    "First-use Metal compilation may affect timing."
+  ],
+  "comparison_runs": [
+    {
+      "profile": "whisperx-large-v3-cpu-pyannote-cpu",
+      "processing_sec": 416.848,
+      "time_per_audio_sec": 1.389493,
+      "included_in_comparison": true,
+      "note": "Baseline, original profile",
+      "source_sidecar_sha256": "d6c32d635c9837e557d778d5abd615be591178161aec83d11b58e72308252357"
+    },
+    {
+      "profile": "gigaam-v3-rnnt-int8-cpu-nemotron",
+      "processing_sec": 31.267,
+      "time_per_audio_sec": 0.104223,
+      "included_in_comparison": true,
+      "note": "Current installed Russian route",
+      "source_sidecar_sha256": "d65d2ab15bd0b38cfd2a9440c9e7dd2e80070339434abc2a6341c5ebb2dc34d1"
+    },
+    {
+      "profile": "gigaam-v3-e2e-ctc-mps-nemotron",
+      "processing_sec": 55.878,
+      "time_per_audio_sec": 0.18626,
+      "included_in_comparison": true,
+      "note": "Optional Russian route",
+      "source_sidecar_sha256": "fa1fa08997c8bd08b9fc40f6b0e28254913b032c57e3f8e26ffe4f99e94fbd92"
+    },
+    {
+      "profile": "whisper-large-v3-mlx-nemotron",
+      "processing_sec": 59.738,
+      "time_per_audio_sec": 0.199127,
+      "included_in_comparison": true,
+      "note": "Experimental; phrase omissions observed",
+      "source_sidecar_sha256": "e84b28519b4dc7a575d5cd4996f441c3423e9ce9b5b873146ab180856a05e5d0"
+    },
+    {
+      "profile": "whisperx-large-v3-turbo-cpu-nemotron",
+      "processing_sec": 102.902,
+      "time_per_audio_sec": 0.343007,
+      "included_in_comparison": false,
+      "note": "Overlapped another process; excluded from comparison",
+      "source_sidecar_sha256": "c572baed7ab7e712e5d4605759ef312b27b1c97d1ec441133d1aac927989c68c"
+    }
+  ],
+  "baseline_to_rnnt_speedup": 13.332,
+  "separate_integration_checks": [
+    {
+      "language": "en",
+      "synthetic": true,
+      "audio_duration_sec": 52.173,
+      "processing_sec": 51.624,
+      "diarization_sec": 0.514,
+      "voice_groups": 2,
+      "note": "Two local macOS voices alternating for six turns"
+    },
+    {
+      "language": "de",
+      "synthetic": true,
+      "audio_duration_sec": 67.833,
+      "processing_sec": 62.525,
+      "diarization_sec": 0.348,
+      "voice_groups": 2,
+      "note": "Two local macOS voices alternating for six turns"
+    },
+    {
+      "language": "ru",
+      "synthetic": false,
+      "audio_duration_sec": 300.0,
+      "processing_sec": 22.693,
+      "diarization_sec": 1.814,
+      "voice_groups": 5,
+      "note": "Separate repeat; ASR word sequence preserved"
+    }
+  ]
+}

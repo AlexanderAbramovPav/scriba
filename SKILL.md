@@ -86,14 +86,17 @@ correct spellings here is the cheapest lever for mixed-terminology accuracy.
 #### Known-speaker enrollment (skip "who is Speaker N?")
 
 If you have a short single-speaker reference clip per known person, pass them so their speakers
-come out **pre-named by construction** instead of `Speaker N`:
+are named in the JSON sidecar:
 ```
 bash skills/scriba/scripts/transcribe.sh "<media-file>" --enroll "Alice=alice.wav,Bob=bob.wav"
 ```
 Enrollment selects pyannote and uses community-1 voice embeddings + a cosine threshold: each meeting cluster is matched
 to its best reference above threshold (greedy, so a name claims at most one cluster). **Unmatched
 speakers stay `Speaker N`** and go through the normal identify/rename flow. For matched speakers,
-skip the "who is Speaker N?" question.
+map the JSON labels in first-appearance order to the renderer's `Speaker N` labels
+and run `rename_speakers.py` on the Markdown versions before presenting them.
+The CLI renderer itself leaves Markdown display labels anonymous. Skip the
+"who is Speaker N?" question only for confirmed enrollment names.
 
 **Persistent voiceprints vs per-recording clips.** Reusable reference clips ("voiceprints") live
 in `.scriba/voiceprints/` (project, next to the media) over `~/.config/scriba/voiceprints/`

@@ -19,7 +19,7 @@ large-v3-turbo. `--accurate` restores the original full WhisperX decoder.
   <=25 s clips required by GigaAM's public short-form API. Russian only; no glossary
   decoding bias. Unknown ASR confidence is `null`, never a fabricated 1.0.
 - `--asr mlx --model large-v3`: full multilingual Whisper on Apple GPU, with forced
-  wav2vec alignment by default. Use for mixed languages and important English terms.
+  wav2vec alignment by default. Experimental; review completeness on your audio.
 - `--asr mlx --model large-v3-turbo`: faster pruned Whisper. Evaluate completeness on
   your own audio before selecting it for important recordings.
 - `--fast`: MLX with native cross-attention word timestamps, skipping wav2vec alignment.
@@ -113,3 +113,6 @@ The 97-test unit suite passed on Python 3.11 and 3.12, including the minimum
 CI dependency set (`pytest`, `numpy`). Regression coverage exercises default
 diarization for forced `ru/en/de/es/fr` and auto-detection, pyannote controls,
 missing native runtime, short replies, raw text preservation and punctuation edits.
+
+Published timing records (without audio/transcripts):
+[October 3, 2026 measurements](../benchmarks/local-performance-2026-10-03.json).

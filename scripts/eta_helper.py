@@ -1,12 +1,8 @@
-"""Estimate transcription wall-clock from chip + calibration cache.
+"""Estimate local-run wall clock from legacy chip heuristics and profile calibration.
 
-ETA = audio_sec * factor.
-
-`factor` is the wall-clock-per-audio-second ratio for CPU whisperX large-v3 (default mode).
-For MLX mode (`--fast`), a single GPU factor is used.
-
-Initial factors (anchored to one observed M4 Max run = 3.2×, scaled by relative CPU benchmarks):
-the calibration cache overrides these after the first real run on each machine.
+The hardcoded factors predate current fast backends; they are initial guesses,
+not measured performance for every ASR/diarizer. The caller supplies a model/profile
+key so calibrated rates stay separate. See references/eta-factors.md.
 """
 
 import json
@@ -38,7 +34,7 @@ CHIP_FACTORS_CPU = {
     'M4 Max':   1.0,
 }
 CPU_FALLBACK = 2.0   # conservative for unknown CPU (incl. Intel)
-MLX_FACTOR = 0.5     # MLX mode — faster than realtime on any Apple Silicon
+MLX_FACTOR = 0.5     # legacy initial guess for experimental MLX; not a cross-chip benchmark
 
 
 def _match_chip(brand: str) -> str | None:

@@ -12,7 +12,8 @@ bash <scriba>/scripts/transcribe.sh <media-file>
 
 Where `<scriba>` is wherever this repo was cloned. Typical paths:
 - `~/.claude/skills/scriba/` (Claude Code convention — still works for any tool)
-- `~/.config/scriba/` or `~/dev/scriba/` (standalone install)
+- `~/.agents/skills/scriba/` (current Codex user skill location)
+- `~/dev/scriba/` (standalone install)
 - A relative path inside a project that vendors it
 
 No AI is required to run scriba — the pipeline is just bash + Python. Your role as an agent is to make the experience pleasant: handle the first-run setup, surface live status without spamming, and help the user name speakers when it's done.
@@ -78,7 +79,7 @@ ASR mangles product names, people, acronyms, and English tech terms spoken insid
 
 ## Known-speaker enrollment — pre-name speakers you already have voiceprints for
 
-When you have a short single-speaker reference clip per known person, pass `--enroll "Alice=alice.wav,Bob=bob.wav"` to `transcribe.sh`. Matched speakers come out **pre-named by construction** (real names baked into segments and words), so you can **skip the "who is Speaker N?" question for them**. Matching uses community-1 voice embeddings + a cosine threshold (greedy: each reference claims at most one cluster). **Unmatched speakers stay `Speaker N`** and follow the normal identify/rename flow below.
+When you have a short single-speaker reference clip per known person, pass `--enroll "Alice=alice.wav,Bob=bob.wav"` to `transcribe.sh`. Matched labels are named in JSON segments/words. The Markdown renderer still uses anonymous display labels: read the JSON labels in first-appearance order (the renderer's order), map confirmed enrollment names to their `Speaker N`, and run `rename_speakers.py` on the Markdown versions. Then skip identification for those names. Matching uses community-1 voice embeddings + a cosine threshold (greedy: each reference claims at most one cluster). Unmatched speakers follow the normal identify/rename flow. CLI-only output does not automatically rename Markdown.
 
 Distinguish two clip kinds: **persistent voiceprints** in `.scriba/voiceprints/` (project, at the recordings root) over `~/.config/scriba/voiceprints/` (global) are reusable references fed to `--enroll` across meetings; the per-recording `<title>.transcript/data/speaker-N.wav` listening clips are just this one meeting's ID samples. After the user names a new speaker, you may offer to save a reference clip as a voiceprint so they're auto-recognised next time.
 
@@ -138,9 +139,8 @@ Apply the same mapping to the `.punctuated.md` reading version when it exists.
 ## Tool-specific notes
 
 - **Claude Code** — `SKILL.md` is the primary entry; this `AGENTS.md` is redundant for Claude. Slash command: `/scriba <file>`.
-- **Codex CLI** (OpenAI) — reads `AGENTS.md` from the project root or `~/.codex/AGENTS.md`. Place this file there.
-- **Cursor** — drop a copy in `.cursor/rules/scriba.md` (project) or reference from `.cursorrules`.
-- **Continue.dev** — register `bash <scriba>/scripts/transcribe.sh` as a custom slash command in `~/.continue/config.yaml`, then point the agent at this file for context.
+- **Codex, local session** — install/link this skill at `~/.agents/skills/scriba/`; see the [official skill locations](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills). Keep Scriba's `AGENTS.md` in its checkout rather than replacing unrelated global instructions.
+- **Cursor / Continue.dev and other local agents** — ask the agent to read this checkout's `SKILL.md` and `AGENTS.md`; configure persistence through the integration supported by your client.
 - **Aider** — `aider --read <scriba>/AGENTS.md <your-file>` adds this as ambient context.
 - **Anything else** — copy-paste this file into the system prompt / instructions field, plus tell the AI where the `scriba` repo lives.
 
