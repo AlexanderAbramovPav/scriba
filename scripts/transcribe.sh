@@ -56,6 +56,8 @@ Usage: transcribe.sh <media-file> [--fast] [--speakers N] [--lang XX] [--model M
   --lang XX     : force language (default: auto-detect)
   --model M     : ASR model (Whisper or GigaAM3; GigaAM ONNX uses SCRIBA_GIGAAM_DIR)
   --diarizer auto|nemotron|pyannote : local speaker model (default: auto)
+  --device cpu|cuda|auto : WhisperX ASR/alignment device (default: cpu; auto = cuda
+                  when torch sees a GPU). MLX (--fast) ignores it. Untested on Linux/CUDA.
   --diar-device auto|cpu|mps|cuda : separate diarization device (default: auto)
   --alignment forced|native : MLX word timing (default: forced)
   --asr auto|mlx|whisperx|gigaam|gigaam3 : ASR backend. gigaam3 = GigaAM v3 on GPU,
@@ -247,6 +249,7 @@ while [[ $# -gt 0 ]]; do
     --model) MODEL="$2"; shift 2;;
     --asr) ASR="$2"; ASR_EXPLICIT=1; shift 2;;
     --diarizer) DIARIZER="$2"; shift 2;;
+    --device) DEVICE="$2"; shift 2;;
     --diar-device) DIAR_DEVICE="$2"; shift 2;;
     --alignment) ALIGNMENT="$2"; shift 2;;
     --out-dir) OUTDIR="$2"; shift 2;;
@@ -254,6 +257,8 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown arg: $1" >&2; usage;;
   esac
 done
+# Validate before the MLX branch below replaces DEVICE with "mlx".
+case "$DEVICE" in cpu|cuda|auto) ;; *) echo "ERROR: invalid --device: $DEVICE" >&2; exit 2;; esac
 
 if [[ "$ASR_EXPLICIT" == "0" && "$LANG" == "ru" && "${SCRIBA_RU_GIGAAM:-0}" == "1" ]]; then
   ASR="gigaam"
@@ -279,6 +284,10 @@ case "$DIAR_DEVICE" in auto|cpu|mps|cuda) ;; *) echo "ERROR: invalid --diar-devi
 case "$ALIGNMENT" in forced|native) ;; *) echo "ERROR: invalid --alignment: $ALIGNMENT" >&2; exit 2;; esac
 
 bootstrap  # idempotent
+# Resolve `auto` once, in the venv that has torch, so the banner and ETA calibration see the real device.
+if [[ "$DEVICE" == "auto" ]]; then
+  DEVICE="$("$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); from transcribe_whisperx import resolve_device; print(resolve_device("auto"))' "$SKILL_DIR/scripts" 2>/dev/null || echo cpu)"
+fi
 if [[ "$ASR" == "gigaam3" ]] && ! "$PY" -c 'import gigaam' >/dev/null 2>&1; then
   uv pip install --python "$PY" --no-deps 'gigaam @ git+https://github.com/salute-developers/GigaAM.git@7447938d791c4f3e643386ee22c33777004293a5'
   uv pip install --python "$PY" 'hydra-core==1.3.*' soundfile sentencepiece

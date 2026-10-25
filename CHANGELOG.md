@@ -6,7 +6,15 @@ versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `transcribe.sh --device cpu|cuda|auto` runs WhisperX ASR and alignment on CUDA (default stays
+  `cpu`; `auto` picks `cuda` when torch sees a GPU). Untested on Linux/CUDA.
+  ([#6](https://github.com/AlexanderAbramovPav/scriba/discussions/6))
+
 ### Fixed
+- `rename_speakers.py` reported the size of the mapping as "Renamed N speaker(s)" even when no
+  label matched. It now counts real replacements, warns about mapping keys with no `Speaker N`
+  label, and exits 1 without writing when nothing was renamed.
 - **Diarization failed on fresh installs** with `TypeError: ... unexpected keyword argument 'token'`
   (or `'plda'`) — whisply pins `pyannote.audio==3.4.0`, but the `community-1` pipeline + `token=`
   need pyannote.audio ≥ 4.0. The bootstrap now upgrades to the tested `whisperx>=3.8.6` /
