@@ -214,6 +214,7 @@ bash scripts/transcribe.sh "/path/to/meeting.mp4" --lang ru
 | `--fast` | Experimental MLX/native timing; review phrase completeness on Russian audio. |
 | `--accurate` | Full large-v3 with the original WhisperX decoder and forced alignment. |
 | `--asr auto/whisperx/gigaam/gigaam3/mlx` | Choose automatic routing or a specific ASR backend. GigaAM RNNT and GigaAM3 E2E CTC are Russian-only. MLX is experimental. |
+| `--device cpu/cuda/auto` | WhisperX ASR and alignment device. Default: `cpu`; `auto` picks `cuda` when torch sees a GPU. MLX ignores it. Untested on Linux/CUDA. |
 | `--diar-device auto/cpu/mps/cuda` | Set the diarization device separately from ASR. Nemotron maps `mps` to Metal. |
 | `--alignment forced/native` | Choose forced alignment or native word times for MLX. |
 | `--diarizer auto/pyannote/nemotron` | Explicit local diarizer selection. Nemotron supports up to eight voices; enrollment/count hints use pyannote. |

@@ -112,3 +112,24 @@ def test_failed_forced_mlx_alignment_is_not_reported_as_native_timing(monkeypatc
     assert result["segments"][0]["text"] == "Hello world."
     assert not result["segments"][0].get("words")
     assert holder.model is None
+
+
+def test_device_auto_picks_cuda_only_when_torch_sees_a_gpu():
+    assert tw.resolve_device("auto", cuda_available=True) == "cuda"
+    assert tw.resolve_device("auto", cuda_available=False) == "cpu"
+
+
+def test_explicit_device_passes_through():
+    for d in ("cpu", "cuda"):
+        assert tw.resolve_device(d, cuda_available=False) == d
+        assert tw.resolve_device(d, cuda_available=True) == d
+
+
+def test_transcribe_sh_rejects_unknown_device_before_bootstrap(tmp_path):
+    # Validation runs before `bootstrap`, so this needs no venv or models.
+    import subprocess
+    media = tmp_path / "m.wav"; media.write_bytes(b"")
+    r = subprocess.run(["bash", str(HERE.parent / "scripts" / "transcribe.sh"), str(media), "--device", "gpu"],
+                       capture_output=True, text=True, timeout=30)
+    assert r.returncode == 2
+    assert "invalid --device: gpu" in r.stderr

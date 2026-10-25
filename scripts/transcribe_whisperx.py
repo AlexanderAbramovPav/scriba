@@ -154,6 +154,23 @@ def diarization_backend_ok(version_str: str) -> tuple[bool, str]:
     )
 
 
+def resolve_device(requested: str, cuda_available: bool | None = None) -> str:
+    """Map the `--device` choice to a concrete whisperX device.
+
+    `auto` picks `cuda` when torch sees a GPU, else `cpu`; explicit `cpu`/`cuda` pass through.
+    `cuda_available` is injectable so the choice is unit-testable without torch.
+    """
+    if requested != "auto":
+        return requested
+    if cuda_available is None:
+        try:
+            import torch
+            cuda_available = bool(torch.cuda.is_available())
+        except Exception:
+            cuda_available = False
+    return "cuda" if cuda_available else "cpu"
+
+
 def main() -> int:
     started = time.perf_counter()
     timings = {}
@@ -163,7 +180,7 @@ def main() -> int:
     ap.add_argument("--output", required=True, help="path to write result JSON")
     ap.add_argument("--model", default=None)
     ap.add_argument("--asr", default="whisperx", choices=["whisperx", "gigaam", "gigaam3", "mlx"])
-    ap.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
+    ap.add_argument("--device", default="cpu", choices=["cpu", "cuda", "auto"])
     ap.add_argument("--language", default=None)
     ap.add_argument("--batch-size", type=int, default=1,
                     help="whisperX batch size. 1 = smoothest per-segment streaming on CPU. "
@@ -183,6 +200,7 @@ def main() -> int:
     args = ap.parse_args()
     if args.num_speakers is not None and args.num_speakers <= 0:
         ap.error("--num-speakers must be positive")
+    args.device = resolve_device(args.device)
     if args.hf_token_file:
         args.hf_token = Path(args.hf_token_file).read_text().strip()
     args.model = args.model or ("v3_e2e_ctc" if args.asr == "gigaam3" else (

@@ -45,3 +45,27 @@ def test_explicit_map_and_out(tmp_path):
     out = o.read_text(encoding="utf-8")
     assert "**Иван**" in out and "**Аня**" in out
     assert p.read_text(encoding="utf-8") == MD  # original untouched when --out given
+
+
+def test_zero_renamed_fails_and_leaves_file_unchanged(tmp_path):
+    # PR #9's `--map "Hablante 1=…"` used to print "Renamed 2 speaker(s)" and exit 0.
+    p = write(tmp_path); o = tmp_path / "named.md"
+    r = subprocess.run([sys.executable, str(SCRIPT), str(p),
+                        "--map", "Hablante 1=Alice,Hablante 2=Bob", "--out", str(o)],
+                       capture_output=True, text=True)
+    assert r.returncode != 0
+    assert "Hablante 1" in r.stderr and "Speaker N" in r.stderr
+    assert "renamed 0" in r.stderr
+    assert p.read_text(encoding="utf-8") == MD
+    assert not o.exists()
+
+
+def test_partial_match_renames_and_names_the_missing_label(tmp_path):
+    p = write(tmp_path)
+    r = subprocess.run([sys.executable, str(SCRIPT), str(p), "Иван,Аня,Олег"],
+                       capture_output=True, text=True)
+    assert r.returncode == 0
+    assert "Speaker 3" in r.stderr  # warned: no such label
+    assert "Renamed 2 speaker(s), 4 label(s)" in r.stderr
+    out = p.read_text(encoding="utf-8")
+    assert "**Иван**" in out and "**Аня**" in out and "Олег" not in out
