@@ -213,7 +213,7 @@ bash scripts/transcribe.sh "/path/to/meeting.mp4" --lang ru
 | (default) | `--lang ru` with the installed ONNX bundle and no glossary/model override: GigaAM v3 RNNT. Otherwise WhisperX turbo on Apple Silicon, full large-v3 elsewhere. For every language, installed Nemotron is preferred; pyannote is the fallback. |
 | `--fast` | Experimental MLX/native timing; review phrase completeness on Russian audio. |
 | `--accurate` | Full large-v3 with the original WhisperX decoder and forced alignment. |
-| `--asr auto/whisperx/gigaam/gigaam3/mlx` | Choose automatic routing or a specific ASR backend. GigaAM RNNT and GigaAM3 E2E CTC are Russian-only. MLX is experimental. |
+| `--asr auto/whisperx/gigaam/gigaam3/mlx/nemotron35` | Choose automatic routing or a specific ASR backend. GigaAM RNNT and GigaAM3 E2E CTC are Russian-only. MLX is experimental. `nemotron35` is opt-in [NVIDIA Nemotron 3.5 Transcribe](./references/local-backends.md#opt-in-nemotron-35-transcribe) for non-Russian / mixed meetings: punctuation, word times and speakers in one pass; needs ~20 GB RAM, 21 GB weights and a NeMo-Speech.cpp nightly; at most one hour per file. |
 | `--device cpu/cuda/auto` | WhisperX ASR and alignment device. Default: `cpu`; `auto` picks `cuda` when torch sees a GPU. MLX ignores it. Untested on Linux/CUDA. |
 | `--diar-device auto/cpu/mps/cuda` | Set the diarization device separately from ASR. Nemotron maps `mps` to Metal. |
 | `--alignment forced/native` | Choose forced alignment or native word times for MLX. |
@@ -221,7 +221,7 @@ bash scripts/transcribe.sh "/path/to/meeting.mp4" --lang ru
 | `--speakers N` | Set the speaker count through pyannote; automatic selection uses pyannote for this option. Default: auto. |
 | `--enroll "Name=clip.wav,..."` | Match known voices through pyannote; matched labels are stored in JSON. Markdown uses anonymous display labels until renamed. |
 | `--lang XX` | Force ISO language code (`en`, `ru`, `de`, …). Default: auto-detect. |
-| `--model M` | Override the Whisper/GigaAM3 model. Explicit model overrides select WhisperX unless an ASR mode is selected with `--asr`, `--fast` or `--accurate`. |
+| `--model M` | Override the Whisper/GigaAM3 model, or the Nemotron 3.5 decoder GGUF path. Explicit model overrides select WhisperX unless an ASR mode is selected with `--asr`, `--fast` or `--accurate`. |
 | `--out-dir DIR` | Output directory; default: alongside the input. |
 | `--title "Name"` / `--name "Name"` | Set a meaningful output stem/title. |
 | `--bootstrap` | Create/repair the runtime environment; model weights are loaded on first transcription. |

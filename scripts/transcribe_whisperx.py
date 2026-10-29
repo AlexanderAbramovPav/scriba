@@ -179,7 +179,7 @@ def main() -> int:
     ap.add_argument("--audio", required=True, help="path to 16kHz mono WAV")
     ap.add_argument("--output", required=True, help="path to write result JSON")
     ap.add_argument("--model", default=None)
-    ap.add_argument("--asr", default="whisperx", choices=["whisperx", "gigaam", "gigaam3", "mlx"])
+    ap.add_argument("--asr", default="whisperx", choices=["whisperx", "gigaam", "gigaam3", "mlx", "nemotron35"])
     ap.add_argument("--device", default="cpu", choices=["cpu", "cuda", "auto"])
     ap.add_argument("--language", default=None)
     ap.add_argument("--batch-size", type=int, default=1,
@@ -203,18 +203,28 @@ def main() -> int:
     args.device = resolve_device(args.device)
     if args.hf_token_file:
         args.hf_token = Path(args.hf_token_file).read_text().strip()
-    args.model = args.model or ("v3_e2e_ctc" if args.asr == "gigaam3" else (
-        "gigaam-v3-rnnt-int8" if args.asr == "gigaam" else "large-v3"))
+    if args.asr != "nemotron35":  # its GGUF path is resolved by asr_nemotron35
+        args.model = args.model or ("v3_e2e_ctc" if args.asr == "gigaam3" else (
+            "gigaam-v3-rnnt-int8" if args.asr == "gigaam" else "large-v3"))
     asr_started = time.perf_counter()
+    # Overlap-aware turns drive the C2 confidence signals. Default empty so the
+    # enrichment below is well-defined even when diarization is skipped/no token.
+    overlap_turns: list = []
     diarizer_used = "none"
     alignment_used = "forced"
     import diarize_nemotron
+    import asr_nemotron35
     try:
-        selected_diarizer = diarize_nemotron.select_backend(
-            args.diarizer, num_speakers=args.num_speakers, enroll=args.enroll)
+        if args.asr == "nemotron35" and asr_nemotron35.embedded_speakers(
+                args.diarizer, args.num_speakers, args.enroll):
+            selected_diarizer = "nemotron"  # its own tags; Nemotron 3 need not be installed
+        else:
+            selected_diarizer = diarize_nemotron.select_backend(
+                args.diarizer, num_speakers=args.num_speakers, enroll=args.enroll)
     except (ValueError, FileNotFoundError) as exc:
         ap.error(str(exc))
     use_nemotron = selected_diarizer == "nemotron"
+    speakers_from_asr = False  # Nemotron 3.5 tags speakers during decoding
 
     # ASR backend selection. The default whisperX path is below as the `else`; the
     # opt-in GigaAM-RU path is model-dependent (sherpa-onnx + ONNX bundle) and so is
@@ -234,6 +244,28 @@ def main() -> int:
         language = "ru"
         alignment_used = "native"
         timings["asr"] = round(time.perf_counter() - asr_started, 3)
+    elif args.asr == "nemotron35":  # pragma: no cover - requires the 21 GB speech-LLM
+        audio = whisperx.load_audio(args.audio)
+        audio_sec = len(audio) / 16000.0
+        try:
+            asr_nemotron35.check_duration(audio_sec)
+        except ValueError as exc:
+            ap.error(str(exc))
+        if args.language == "ru":
+            log("WARN: Nemotron 3.5 is not yet measured on Russian; GigaAM remains the default")
+        speakers_from_asr = args.annotate and use_nemotron
+        model_file = asr_nemotron35.model_path(args.model)
+        args.model = model_file.name  # recorded without the local path
+        log(f"transcribing (Nemotron 3.5 Transcribe, {args.model})")
+        result = asr_nemotron35.transcribe(args.audio, str(model_file), args.language, args.glossary,
+                                           diarize=speakers_from_asr)
+        language = result.get("language") or args.language or "en"
+        alignment_used = "native"
+        timings["asr"] = round(time.perf_counter() - asr_started, 3)
+        if speakers_from_asr:
+            overlap_turns = asr_nemotron35.speaker_turns(result["segments"])
+            diarizer_used = "nemotron-3.5-embedded"
+            log(f"diarization done: {len(set(t[2] for t in overlap_turns))} speakers (embedded)")
     elif args.asr == "mlx":  # pragma: no cover - requires Apple Silicon
         import asr_mlx
         audio = whisperx.load_audio(args.audio)
@@ -352,10 +384,6 @@ def main() -> int:
             alignment_used = "none"
         timings["alignment"] = round(time.perf_counter() - alignment_started, 3)
 
-    # Overlap-aware turns drive the C2 confidence signals. Default empty so the
-    # enrichment below is well-defined even when diarization is skipped/no token.
-    overlap_turns: list = []
-
     # Preflight: community-1 + token= need pyannote.audio>=4.0. whisply pins 3.4.0, so a stale
     # install would otherwise die deep inside from_pretrained() with the cryptic token/plda
     # TypeError from issue #3. Read the version cheaply (importlib.metadata, no torch import) and
@@ -370,7 +398,9 @@ def main() -> int:
         diar_ready, diar_msg = diarization_backend_ok(_pa_ver)
 
     diar_started = time.perf_counter()
-    if args.annotate and use_nemotron:
+    if speakers_from_asr:
+        pass  # speakers already tagged by the ASR pass
+    elif args.annotate and use_nemotron:
         log("diarizing (nvidia/Nemotron-3-Diarization)")
         # An explicitly selected backend must fail clearly, never publish a
         # plausible-looking single-speaker transcript after failed diarization.

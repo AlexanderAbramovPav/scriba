@@ -35,6 +35,11 @@ CHIP_FACTORS_CPU = {
 }
 CPU_FALLBACK = 2.0   # conservative for unknown CPU (incl. Intel)
 MLX_FACTOR = 0.5     # legacy initial guess for experimental MLX; not a cross-chip benchmark
+# Initial guesses by ASR backend (second field of the profile key). Nemotron 3.5 Transcribe
+# on Metal: 0.22-0.26x observed on 52-68 s fixtures on an M4 Max (Oct 2026), mostly model load.
+ASR_FACTORS = {
+    'nemotron35': (0.3, 'Nemotron 3.5 (Metal)'),
+}
 
 
 def _match_chip(brand: str) -> str | None:
@@ -47,7 +52,11 @@ def _match_chip(brand: str) -> str | None:
 
 def get_factor(device: str, model: str, chip: str, calib_path: str) -> tuple[float, str, str]:
     """Return (factor, source, label). source ∈ {calibrated, chip_default, fallback}."""
-    if device == 'mlx':
+    asr = model.split(':')[1] if model.count(':') >= 1 else ''
+    if asr in ASR_FACTORS:
+        base, label = ASR_FACTORS[asr]
+        source = 'chip_default'
+    elif device == 'mlx':
         base, source, label = MLX_FACTOR, 'chip_default', 'MLX'
     else:
         chip_key = _match_chip(chip)

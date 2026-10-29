@@ -47,7 +47,12 @@ The token is read-only and revocable any time at <https://hf.co/settings/tokens>
 For Russian calls on this Mac, pass `--lang ru`: installed GigaAM v3 RNNT is
 selected automatically, with Nemotron 3 (max eight speakers). It provides native
 word timing but no punctuation. Glossary/model overrides use WhisperX instead.
-Other languages use WhisperX large-v3-turbo on Apple Silicon. Nemotron 3 is the
+Other languages use WhisperX large-v3-turbo on Apple Silicon.
+`--asr nemotron35` is an opt-in NVIDIA Nemotron 3.5 Transcribe backend for
+non-Russian or mixed-language meetings: punctuated text, word times and speakers in
+one pass (no host-AI punctuation needed). It needs a NeMo-Speech.cpp nightly, about
+20 GB of free RAM and 21 GB of weights, and accepts at most one hour; never select it
+by default or for Russian-only calls. Nemotron 3 is the
 automatic diarizer for **all** languages, including detected languages, when its
 runtime is installed; otherwise pyannote is used. Diarizer selection is separate
 from the ASR model and language. `--accurate` keeps

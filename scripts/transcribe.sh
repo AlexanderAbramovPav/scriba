@@ -60,11 +60,15 @@ Usage: transcribe.sh <media-file> [--fast] [--speakers N] [--lang XX] [--model M
                   when torch sees a GPU). MLX (--fast) ignores it. Untested on Linux/CUDA.
   --diar-device auto|cpu|mps|cuda : separate diarization device (default: auto)
   --alignment forced|native : MLX word timing (default: forced)
-  --asr auto|mlx|whisperx|gigaam|gigaam3 : ASR backend. gigaam3 = GigaAM v3 on GPU,
+  --asr auto|mlx|whisperx|gigaam|gigaam3|nemotron35 : ASR backend. gigaam3 = GigaAM v3 on GPU,
                   Russian-only, native word timing, --model v3_e2e_ctc (default).
                   gigaam = GigaAM v3 RNNT via sherpa-onnx (Russian-only).
                   Auto-selected with --lang ru when its bundle is installed
                   and no glossary/model override is requested (see references/setup.md).
+                  nemotron35 = opt-in NVIDIA Nemotron 3.5 Transcribe: punctuation, word
+                  times and speakers in one pass; for non-Russian / mixed meetings.
+                  Needs a NeMo-Speech.cpp nightly, ~20 GB RAM, 21 GB weights, <=1 h
+                  audio; --model takes its GGUF path (references/local-backends.md).
   --out-dir DIR : output directory (default: alongside input)
   --title "<name>" : human title for the output folder/file/H1 (use when the source
                   filename is generic, e.g. zoom_0 / GMT20260605-120000 / recording)
@@ -276,9 +280,10 @@ fi
 if [[ "$ASR" == "mlx" ]]; then DEVICE="mlx"; MODEL="${MODEL:-large-v3-turbo}";
 elif [[ "$ASR" == "gigaam3" ]]; then MODEL="${MODEL:-v3_e2e_ctc}";
 elif [[ "$ASR" == "gigaam" ]]; then MODEL="gigaam-v3-rnnt-int8";
+elif [[ "$ASR" == "nemotron35" ]]; then DEVICE="metal";  # MODEL empty = default GGUF
 elif [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then MODEL="${MODEL:-large-v3-turbo}";
 else MODEL="${MODEL:-large-v3}"; fi
-case "$ASR" in mlx|whisperx|gigaam|gigaam3) ;; *) echo "ERROR: invalid --asr: $ASR" >&2; exit 2;; esac
+case "$ASR" in mlx|whisperx|gigaam|gigaam3|nemotron35) ;; *) echo "ERROR: invalid --asr: $ASR" >&2; exit 2;; esac
 case "$DIARIZER" in auto|nemotron|pyannote) ;; *) echo "ERROR: invalid --diarizer: $DIARIZER" >&2; exit 2;; esac
 case "$DIAR_DEVICE" in auto|cpu|mps|cuda) ;; *) echo "ERROR: invalid --diar-device: $DIAR_DEVICE" >&2; exit 2;; esac
 case "$ALIGNMENT" in forced|native) ;; *) echo "ERROR: invalid --alignment: $ALIGNMENT" >&2; exit 2;; esac
@@ -317,8 +322,14 @@ CHIP="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo unknown)"
 DIAR_ARGS=(--backend "$DIARIZER")
 [[ -n "$SPEAKERS" ]] && DIAR_ARGS+=(--num-speakers "$SPEAKERS")
 [[ -n "${ENROLL:-}" ]] && DIAR_ARGS+=(--enroll "$ENROLL")
-DIAR_PROFILE="$("$PY" "$SKILL_DIR/scripts/diarize_nemotron.py" "${DIAR_ARGS[@]}")"
-ETA_MODEL="$MODEL:$ASR:$DIAR_PROFILE:$DIAR_DEVICE:$ALIGNMENT"
+if [[ "$ASR" == "nemotron35" && "$DIARIZER" != "pyannote" && -z "$SPEAKERS" && -z "${ENROLL:-}" ]]; then
+  DIAR_PROFILE="nemotron"  # Nemotron 3.5 tags speakers itself
+else
+  DIAR_PROFILE="$("$PY" "$SKILL_DIR/scripts/diarize_nemotron.py" "${DIAR_ARGS[@]}")"
+fi
+MODEL_LABEL="$MODEL"
+[[ "$ASR" == "nemotron35" ]] && MODEL_LABEL="$(basename "${MODEL:-${SCRIBA_NEMOTRON35_MODEL:-nemotron35-default}}" .gguf)"
+ETA_MODEL="$MODEL_LABEL:$ASR:$DIAR_PROFILE:$DIAR_DEVICE:$ALIGNMENT"
 FACTOR_INFO="$(python3 "$ETA_HELPER" factor "$DEVICE" "$ETA_MODEL" "$CHIP" "$CALIB_FILE" 2>/dev/null || echo "5.0|fallback|error")"
 FACTOR="$(echo "$FACTOR_INFO" | cut -d'|' -f1)"
 ETA_SOURCE="$(echo "$FACTOR_INFO" | cut -d'|' -f2)"
@@ -331,7 +342,7 @@ fmt_time() { local s=$1; printf "%02d:%02d" $((s/60)) $((s%60)); }
   echo "=============================================================="
   echo "[scriba]"
   printf "  audio:    %s (%ds)\n" "$(fmt_time "$AUDIO_SEC")" "$AUDIO_SEC"
-  echo  "  pipeline: $MODEL · $DEVICE on $CHIP_LABEL"
+  echo  "  pipeline: $MODEL_LABEL · $DEVICE on $CHIP_LABEL"
   printf "  factor:   %s× (%s)\n" "$FACTOR" "$ETA_SOURCE"
   printf "  ETA:      ~%s wall-clock (refined after model warmup)\n" "$(fmt_time "$ETA_SEC")"
   echo  "  progress: $PROGRESS"
@@ -505,12 +516,12 @@ ffmpeg -y -i "$INPUT_ABS" -vn -ac 1 -ar 16000 "$AUDIO" >>"$LOG" 2>&1 \
   || { echo "ERROR: ffmpeg failed to extract audio from $INPUT_ABS" >&2; exit 4; }
 
 echo "transcribe" > "$STAGE_FILE"
-echo "[2/3] Transcribing ($DEVICE, $MODEL) — live output: tail -f \"$LOG\"" >&2
+echo "[2/3] Transcribing ($DEVICE, $MODEL_LABEL) — live output: tail -f \"$LOG\"" >&2
 
 JSON="$TMP/audio.json"
   # Shared path retains glossary, word reconciliation, confidence and enrollment.
-  # MLX runs ASR on Apple GPU; the alignment device remains CPU.
-  ALIGN_DEVICE="${DEVICE/mlx/cpu}"
+  # MLX and Nemotron 3.5 run ASR on Apple GPU; the alignment device remains CPU.
+  ALIGN_DEVICE="${DEVICE/mlx/cpu}"; ALIGN_DEVICE="${ALIGN_DEVICE/metal/cpu}"
   WRAP_ARGS=(--audio "$AUDIO" --output "$JSON" --model "$MODEL" --device "$ALIGN_DEVICE" --batch-size 1 --asr "$ASR"
              --diarizer "$DIAR_PROFILE" --diar-device "$DIAR_DEVICE" --alignment "$ALIGNMENT")
   [[ -n "$LANG" ]] && WRAP_ARGS+=(--language "$LANG")
