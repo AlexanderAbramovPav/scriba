@@ -52,6 +52,11 @@ First invocation of `transcribe.sh` auto-bootstraps `.venv` and downloads model 
   so do not select it for important Russian transcripts without checking completeness.
 - **`--asr gigaam3`:** optional GigaAM v3 E2E CTC on MPS, punctuation/native timing;
   Oscar tests showed worse brand spelling than RNNT. Not the Russian default.
+- **`--asr nemotron35`:** opt-in NVIDIA Nemotron 3.5 Transcribe for non-Russian or
+  mixed-language meetings: punctuation, word times and speakers in one pass, glossary as
+  a "Possible terms" instruction. Needs a NeMo-Speech.cpp nightly, ~20 GB free RAM and
+  21 GB of weights; at most one hour per file. Never the default; not measured on Russian.
+  Its output is already punctuated, so skip host-AI punctuation.
 
 Details, installation, limits and reproducible local evidence:
 [local backends](references/local-backends.md). Retain the default anonymous speaker

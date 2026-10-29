@@ -33,6 +33,86 @@ Oscar tests showed phrase omissions even with full large-v3 and FP32. Do not
 select it for important Russian recordings without reviewing completeness. An explicit `--asr`
 always wins over language-based routing. See `transcribe.sh --help` for options.
 
+## Opt-in: Nemotron 3.5 Transcribe
+
+`--asr nemotron35` runs NVIDIA's Nemotron 3.5 Transcribe 30B-A4B speech-LLM through
+NeMo-Speech.cpp on Metal. One native pass gives punctuated, cased text, CTC word
+times and speaker tags. The glossary becomes the instruction suffix
+`Possible terms: …` (the model has no phrase boosting). It is **opt-in, never a
+default**: use it for non-Russian or mixed-language meetings. Russian stays on GigaAM,
+and other languages stay on WhisperX, until Russian runs are measured.
+
+```bash
+bash scripts/transcribe.sh meeting.m4a --asr nemotron35 [--lang en]
+```
+
+- **Speakers:** the model's own tags are used (`nemotron-3.5-embedded` in the JSON
+  `pipeline.diarizer`); Nemotron 3 is not run a second time. `--enroll`,
+  `--speakers N` or `--diarizer pyannote` decode without tags and assign speakers
+  with pyannote (HF token needed).
+- **Limits:** at most one hour per file (longer input stops with an error before
+  the model loads). Offline only, no streaming progress: the ETA is a factor
+  estimate until decoding returns. Not measured on Russian; a run with `--lang ru`
+  logs a warning.
+- **Hardware:** macOS on Apple Silicon only in this release (scriba passes
+  `--device metal`). About 20 GB peak memory (scriba's other paths use about 3 GB) and
+  21.4 GB on disk. Tested on an M4 Max with 36 GB; close heavy apps first. It does not
+  fit 16–24 GB Macs. NVIDIA's official platform is CUDA; the Metal path is upstream
+  llama.cpp without speculative decoding.
+- **Instruction:** the default prompt is the one measured on the EN/DE fixtures
+  (punctuation, fillers kept, written numbers, `<spk:N>` tags). Set
+  `SCRIBA_NEMOTRON35_INSTRUCTION` to test another; `{language}` expands to the
+  `--lang` name.
+
+### Install
+
+1. **Runtime.** Speech-LLM support (NeMo-Speech.cpp #82) is only in the **nightly**
+   pre-release (66d50d9, 2026-10-28, or newer); v0.2.0 lacks it. Download
+   `nemo-speech-nightly-macos-aarch64-metal.tar.gz` and its `.sha256` from
+   <https://github.com/NVIDIA/NeMo-Speech.cpp/releases/tag/nightly>, check the
+   checksum, unpack it outside the repo (here:
+   `~/.local/share/scriba/nemo-speech-nightly-66d50d9/`), and point
+   `SCRIBA_NEMOTRON35_BIN` at its `bin/nemo-speech`. Your `nemo-speech` 0.2.0 for
+   Nemotron 3 diarization can stay as is. Scriba checks that the binary supports
+   `--instruction` and stops with an error otherwise.
+2. **Weights.** Put both GGUF files in one directory; the decoder loads the encoder
+   next to it. Default: `~/.cache/scriba/nemotron35/`. Elsewhere: set
+   `SCRIBA_NEMOTRON35_MODEL` to the decoder path, or pass `--model <decoder.gguf>`.
+
+   | File (AtomicChat/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-GGUF) | Bytes | SHA-256 |
+   |---|--:|---|
+   | `NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-AD-IQ4_NL.gguf` (decoder) | 19,678,656,672 | `0c47d4ab6c783e7606ec03714b354fab0b2052027a7ea1991e7e2d3009c345ad` |
+   | `NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-Encoder-F16.gguf` | 1,670,410,080 | `4221029c8a565c4a80c507ffa760c716e595acf663f9f4273ce69910050e7ba2` |
+
+   ```bash
+   mkdir -p ~/.cache/scriba/nemotron35 && cd ~/.cache/scriba/nemotron35
+   for f in AD-IQ4_NL Encoder-F16; do
+     curl -LO "https://huggingface.co/AtomicChat/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-GGUF/resolve/main/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-$f.gguf"
+   done
+   shasum -a 256 *.gguf   # compare with the table
+   ```
+
+   The GGUF is a third-party conversion of NVIDIA's checkpoint (OpenMDW 1.1). Its
+   published quality deltas were measured on CUDA, not on Metal or Russian.
+   Converting the 67.5 GB BF16 checkpoint yourself needs about 130 GB free disk.
+
+### Evidence
+
+Scout evaluation on 2026-10-29 (M4 Max, 36 GB, weights cached), synthetic two-voice
+dialogues without overlap; WhisperX already scores 0% WER on them, so they separate
+backends on timing, speakers and speed only:
+
+| Input | Backend | WER | DER (no collar) | Turn-boundary MAE | Wall time |
+|---|---|--:|--:|--:|--:|
+| EN 52.2 s | WhisperX turbo + Nemotron 3 (scriba CLI) | 0.0% | 1.30% | 0.053 s | 53.6 s |
+| EN 52.2 s | Nemotron 3.5, native CLI | 0.0% | 1.15% | 0.046 s | 13.7 s |
+| EN 52.2 s | `--asr nemotron35` (scriba CLI, this release) | 0.0% | 1.15% | 0.046 s | 38.5 s ¹ |
+| DE 67.8 s | WhisperX turbo + Nemotron 3 (scriba CLI) | 0.0% | 3.86% | 0.145 s | 31.3 s |
+| DE 67.8 s | Nemotron 3.5, native CLI | 0.0% | 1.48% | 0.034 s | 15.0 s |
+
+¹ Includes the model load from disk (ASR 36.8 s) and Markdown/clip rendering. Single
+observations; no Russian or real-call measurement yet.
+
 ## Diarization
 
 For **every ASR language**, including auto-detected and mixed-language recordings,

@@ -82,6 +82,8 @@ The MIT-licensed dependencies each require their license text and copyright noti
 | GigaAM v3 RNNT ONNX | 2025-12-16 bundle | MIT | bundle LICENSE / GigaAM upstream |
 | NeMo-Speech.cpp | 0.2.0 Metal | Apache-2.0 | <https://github.com/NVIDIA/NeMo-Speech.cpp> |
 | Nemotron 3 Diarization | pinned native model index revision f667ed73aee57d40cc39428eb768b4fd87a0a29e | OpenMDW 1.1 | <https://huggingface.co/nvidia/Nemotron-3-Diarization> |
+| NeMo-Speech.cpp nightly (opt-in `--asr nemotron35`) | 0.2.0+nightly.66d50d9 Metal | Apache-2.0 | <https://github.com/NVIDIA/NeMo-Speech.cpp> |
+| Nemotron 3.5 Transcribe 30B-A4B (opt-in) | AtomicChat GGUF conversion, AD-IQ4_NL decoder + Encoder-F16 | OpenMDW 1.1 | <https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B>, <https://huggingface.co/AtomicChat/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-GGUF> |
 
 Weights and the native runtime are installed outside this repository and are not
 vendored in Scriba. The native archive includes its upstream license notices.

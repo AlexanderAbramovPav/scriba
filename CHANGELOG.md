@@ -7,6 +7,11 @@ versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `transcribe.sh --asr nemotron35`: opt-in NVIDIA Nemotron 3.5 Transcribe backend (NeMo-Speech.cpp
+  nightly, 4-bit GGUF) for non-Russian and mixed-language meetings. One pass gives punctuated text,
+  word times and speaker tags; the glossary becomes a "Possible terms" instruction. Not a default:
+  it needs about 20 GB of RAM and 21 GB of weights, accepts at most one hour, and is not yet
+  measured on Russian. Setup: `references/local-backends.md`.
 - `transcribe.sh --device cpu|cuda|auto` runs WhisperX ASR and alignment on CUDA (default stays
   `cpu`; `auto` picks `cuda` when torch sees a GPU). Untested on Linux/CUDA.
   ([#6](https://github.com/AlexanderAbramovPav/scriba/discussions/6))

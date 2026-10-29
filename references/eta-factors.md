@@ -53,6 +53,11 @@ run or current cross-chip scaling is established by these values.
 | M4 Max | 1.0 |
 | Unmatched CPU | 2.0 |
 | Experimental MLX, any chip | 0.5 |
+| `--asr nemotron35` (Metal), any chip | 0.3 |
+
+The Nemotron 3.5 value comes from 52–68 s fixtures on an M4 Max (0.22–0.26×,
+dominated by loading the 21 GB model); it is keyed on the ASR backend, so it
+applies on any chip until a calibrated entry exists.
 
 The initial banner uses `audio_sec * factor`. Once warmup is detected, the
 predicted estimate adds it. These defaults are not a claim that MLX is twice as
@@ -76,6 +81,8 @@ If those signals are absent, the calibrated/legacy factor is used. In
 particular, the RNNT wrapper currently logs `GigaAM-RU ASR` instead of the
 `→ transcribing` marker: audio position can be measured while ETA stays based
 on the factor. Do not promise an observed-rate ETA after every first segment.
+`--asr nemotron35` decodes the whole file in one native call: audio progress is
+extrapolated from the factor until the call returns, then all segments print at once.
 
 Alignment and diarization are later stages without a reliable completion ETA.
 Pyannote provides sub-step counters; Nemotron does not. Audio can reach 100%
