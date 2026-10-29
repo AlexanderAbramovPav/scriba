@@ -54,7 +54,8 @@ bash scripts/transcribe.sh meeting.m4a --asr nemotron35 [--lang en]
   the model loads). Offline only, no streaming progress: the ETA is a factor
   estimate until decoding returns. Not measured on Russian; a run with `--lang ru`
   logs a warning.
-- **Hardware:** about 20 GB peak memory (scriba's other paths use about 3 GB) and
+- **Hardware:** macOS on Apple Silicon only in this release (scriba passes
+  `--device metal`). About 20 GB peak memory (scriba's other paths use about 3 GB) and
   21.4 GB on disk. Tested on an M4 Max with 36 GB; close heavy apps first. It does not
   fit 16–24 GB Macs. NVIDIA's official platform is CUDA; the Metal path is upstream
   llama.cpp without speculative decoding.

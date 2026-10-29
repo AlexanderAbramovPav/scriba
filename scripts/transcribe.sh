@@ -67,6 +67,7 @@ Usage: transcribe.sh <media-file> [--fast] [--speakers N] [--lang XX] [--model M
                   and no glossary/model override is requested (see references/setup.md).
                   nemotron35 = opt-in NVIDIA Nemotron 3.5 Transcribe: punctuation, word
                   times and speakers in one pass; for non-Russian / mixed meetings.
+                  macOS Apple Silicon (Metal) only in this release.
                   Needs a NeMo-Speech.cpp nightly, ~20 GB RAM, 21 GB weights, <=1 h
                   audio; --model takes its GGUF path (references/local-backends.md).
   --out-dir DIR : output directory (default: alongside input)

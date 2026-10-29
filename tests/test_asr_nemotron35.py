@@ -79,7 +79,16 @@ def test_command_without_language_or_diarization(monkeypatch):
     monkeypatch.delenv("SCRIBA_NEMOTRON35_INSTRUCTION", raising=False)
     cmd = nt.build_command("/bin/ns", "/a.wav", "/m.gguf", "/o.json", diarize=False)
     assert "-l" not in cmd and "--diarize" not in cmd
-    assert cmd[cmd.index("--instruction") + 1].startswith("Transcribe this audio with")
+    prompt = cmd[cmd.index("--instruction") + 1]
+    assert prompt.startswith("Transcribe this audio with") and "<spk:" not in prompt
+
+
+def test_speaker_prompt_is_the_measured_one(monkeypatch):
+    monkeypatch.delenv("SCRIBA_NEMOTRON35_INSTRUCTION", raising=False)
+    assert nt.instruction("en") == (
+        "Transcribe this English audio with punctuation and capitalization. Include all spoken "
+        "words and verbal fillers. Write numbers in their standard written form. Put speaker "
+        "tags <spk:0> <spk:1> <spk:2> <spk:3> on the transcription.")
 
 
 def test_instruction_override(monkeypatch):

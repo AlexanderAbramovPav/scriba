@@ -1,4 +1,4 @@
-"""Opt-in NVIDIA Nemotron 3.5 Transcribe (speech-LLM) via NeMo-Speech.cpp.
+"""Opt-in NVIDIA Nemotron 3.5 Transcribe (speech-LLM) via NeMo-Speech.cpp on Metal.
 
 One native pass gives punctuated text, CTC word times and, with --diarize,
 speaker tags. Speech-LLM (SALM) support exists only in NeMo-Speech.cpp nightly
@@ -19,9 +19,11 @@ MAX_AUDIO_SEC = 3600  # one request holds at most one hour of audio
 DEFAULT_MODEL = "~/.cache/scriba/nemotron35/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-AD-IQ4_NL.gguf"
 # The instruction measured on the T104 EN/DE fixtures (0% WER). Override with
 # SCRIBA_NEMOTRON35_INSTRUCTION to test variants; {language} is the language name.
+# Speaker tags are requested only when the model diarizes.
 INSTRUCTION = ("Transcribe this {language}audio with punctuation and capitalization. "
                "Include all spoken words and verbal fillers. Write numbers in their standard "
-               "written form. Put speaker tags <spk:0> <spk:1> <spk:2> <spk:3> on the transcription.")
+               "written form.")
+SPEAKER_TAGS = " Put speaker tags <spk:0> <spk:1> <spk:2> <spk:3> on the transcription."
 LANGUAGE_NAMES = {
     "en": "English", "de": "German", "fr": "French", "es": "Spanish", "it": "Italian",
     "pt": "Portuguese", "nl": "Dutch", "pl": "Polish", "cs": "Czech", "sk": "Slovak",
@@ -62,8 +64,9 @@ def check_duration(audio_sec: float) -> None:
                          f"per request ({audio_sec / 60:.1f} min given); split the file or use the default backend")
 
 
-def instruction(language: str | None, glossary: str | None = None) -> str:
-    template = os.environ.get("SCRIBA_NEMOTRON35_INSTRUCTION") or INSTRUCTION
+def instruction(language: str | None, glossary: str | None = None, speakers: bool = True) -> str:
+    template = os.environ.get("SCRIBA_NEMOTRON35_INSTRUCTION") or (
+        INSTRUCTION + (SPEAKER_TAGS if speakers else ""))
     name = LANGUAGE_NAMES.get(language or "", "")
     text = template.replace("{language}", f"{name} " if name else "")
     if glossary:
@@ -78,7 +81,7 @@ def build_command(binary, audio_path, model, output, *, language=None, glossary=
                "-o", str(output), "--force",
                # Memory settings measured on a 36 GB Mac: one request, no speculative draft.
                "--asr.salm.max_sequences", "1", "--asr.salm.mtp_draft", "0",
-               "--instruction", instruction(language, glossary)]
+               "--instruction", instruction(language, glossary, speakers=diarize)]
     if language:
         command += ["-l", language]
     if diarize:
