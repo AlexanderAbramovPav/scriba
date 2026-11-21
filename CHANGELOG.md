@@ -17,6 +17,11 @@ versioning follows [Semantic Versioning](https://semver.org/).
   ([#6](https://github.com/AlexanderAbramovPav/scriba/discussions/6))
 
 ### Fixed
+- `update_index.py upsert` silently replaced an unreadable `.scriba/index.json` (invalid JSON,
+  empty file, wrong shape) with a new index holding only the current recording, which dropped
+  every earlier entry. It now leaves the file untouched, prints the path and the reason, and
+  exits 1; `transcribe.sh` no longer hides that error and prints a `WARN:` line (the transcript
+  is still written). The atomic write now also removes its temp file when the write fails.
 - `rename_speakers.py` reported the size of the mapping as "Renamed N speaker(s)" even when no
   label matched. It now counts real replacements, warns about mapping keys with no `Speaker N`
   label, and exits 1 without writing when nothing was renamed.

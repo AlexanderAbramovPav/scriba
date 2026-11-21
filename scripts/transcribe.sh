@@ -575,7 +575,12 @@ try: d=json.load(open(sys.argv[6]))
 except Exception: d={}
 print(json.dumps({'id':sys.argv[1],'title':sys.argv[2],'date':sys.argv[3],'lang':d.get('language','auto'),'duration':int(sys.argv[4]),'folder':sys.argv[5],'low_conf_pct':float(d.get('low_confidence_pct',0))}))" \
   "$REC_ID" "$OUT_STEM" "$(date +%Y-%m-%d)" "$AUDIO_SEC" "$OUT_STEM.transcript" "$JSON" 2>/dev/null || true)"
-[[ -n "$ENTRY" ]] && python3 "$SKILL_DIR/scripts/update_index.py" upsert "$OUTDIR/.scriba" "$ENTRY" 2>/dev/null || true
+# Non-fatal (the transcript is already written), but never silent: update_index.py
+# refuses to overwrite an unreadable index.json and says why on stderr.
+if [[ -n "$ENTRY" ]]; then
+  python3 "$SKILL_DIR/scripts/update_index.py" upsert "$OUTDIR/.scriba" "$ENTRY" \
+    || echo "WARN: transcript saved, but the corpus index $OUTDIR/.scriba/index.json was not updated (see above)." >&2
+fi
 
 # Record observed factor — but only on files long enough for the per-audio-second rate
 # to dominate the one-off warmup. Short clips would skew the cache toward optimism.
