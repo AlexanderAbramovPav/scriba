@@ -1,10 +1,14 @@
-import pathlib, sys
-HERE = pathlib.Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "scripts"))
+import pathlib
+import sys
+
+import pytest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 # Imports cleanly without the ML stack: `import whisperx` is deferred into main(), and CI installs
 # only pytest+numpy. This guards the regression in issue #3 (diarization died on pyannote 3.x).
 import transcribe_whisperx as tw
-import pytest
+
+HERE = pathlib.Path(__file__).resolve().parent
 
 
 def test_pyannote_4x_is_ok():
@@ -77,7 +81,9 @@ def test_default_native_diarization_flows_through_every_language(monkeypatch, tm
     result = json.loads(output.read_text())
     assert result["language"] == detected
     assert result["pipeline"]["diarizer"] == "nemotron-3"
-    assert result["diarization_turns"] == [{"start": s, "end": e, "speaker": p} for s, e, p in turns]
+    assert result["diarization_turns"] == [
+        {"start": s, "end": e, "speaker": p} for s, e, p in turns
+    ]
     assert [s["speaker"] for s in result["segments"]] == ["speaker_0", "speaker_1"]
     assert [w["word"] for s in result["segments"] for w in s["words"]] == ["hello", "yes"]
     assert calls == [("call.wav", "auto")]
@@ -128,8 +134,11 @@ def test_explicit_device_passes_through():
 def test_transcribe_sh_rejects_unknown_device_before_bootstrap(tmp_path):
     # Validation runs before `bootstrap`, so this needs no venv or models.
     import subprocess
-    media = tmp_path / "m.wav"; media.write_bytes(b"")
-    r = subprocess.run(["bash", str(HERE.parent / "scripts" / "transcribe.sh"), str(media), "--device", "gpu"],
-                       capture_output=True, text=True, timeout=30)
+    media = tmp_path / "m.wav"
+    media.write_bytes(b"")
+    r = subprocess.run(
+        ["bash", str(HERE.parent / "scripts" / "transcribe.sh"), str(media), "--device", "gpu"],
+        capture_output=True, text=True, timeout=30,
+    )
     assert r.returncode == 2
     assert "invalid --device: gpu" in r.stderr

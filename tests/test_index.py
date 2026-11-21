@@ -1,6 +1,8 @@
-import json, pathlib, sys
-HERE = pathlib.Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "scripts"))
+import json
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 import update_index as ui
 
 
@@ -20,5 +22,6 @@ def test_upsert_creates_and_updates(tmp_path):
 
 def test_find_index_dir_walks_up(tmp_path):
     (tmp_path / ".scriba").mkdir()
-    deep = tmp_path / "a" / "b"; deep.mkdir(parents=True)
+    deep = tmp_path / "a" / "b"
+    deep.mkdir(parents=True)
     assert ui.find_index_dir(deep) == tmp_path / ".scriba"

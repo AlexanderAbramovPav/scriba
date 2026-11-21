@@ -10,12 +10,19 @@ import transcript_confidence as tc
 
 
 def native(*words):
-    return {"languages": ["de"], "words": [
-        {"word": w, "start": s, "end": e, "confidence": 0, "speaker": spk} for w, s, e, spk in words]}
+    return {
+        "languages": ["de"],
+        "words": [
+            {"word": w, "start": s, "end": e, "confidence": 0, "speaker": spk}
+            for w, s, e, spk in words
+        ],
+    }
 
 
 def test_speaker_zero_survives_and_labels_are_strings():
-    segs = nt.to_segments(native(("Guten", 0., .4, 0), ("Morgen.", .4, .9, 0), ("Hallo", 1., 1.3, 1)))
+    segs = nt.to_segments(
+        native(("Guten", 0., .4, 0), ("Morgen.", .4, .9, 0), ("Hallo", 1., 1.3, 1))
+    )
     assert [s["speaker"] for s in segs] == ["speaker_0", "speaker_1"]
     assert segs[0]["words"][0]["speaker"] == "speaker_0"
 
@@ -23,7 +30,8 @@ def test_speaker_zero_survives_and_labels_are_strings():
 def test_segments_split_at_speaker_change_pause_and_sentence_end():
     segs = nt.to_segments(native(
         ("Guten", 0., .4, 0), ("Morgen", .4, .9, 0), ("zusammen.", .9, 1.4, 0),
-        ("Heute", 1.5, 1.8, 0), ("prüfen", 3.5, 3.9, 0), ("Ja,", 4.0, 4.2, 1), ("genau.", 4.2, 4.6, 1)))
+        ("Heute", 1.5, 1.8, 0), ("prüfen", 3.5, 3.9, 0),
+        ("Ja,", 4.0, 4.2, 1), ("genau.", 4.2, 4.6, 1)))
     assert [s["text"] for s in segs] == ["Guten Morgen zusammen.", "Heute", "prüfen", "Ja, genau."]
     assert (segs[0]["start"], segs[0]["end"]) == (0., 1.4)
 
@@ -64,7 +72,9 @@ def test_salm_probe():
 
 def test_command_with_language_glossary_and_speakers(monkeypatch):
     monkeypatch.delenv("SCRIBA_NEMOTRON35_INSTRUCTION", raising=False)
-    cmd = nt.build_command("/bin/ns", "/a.wav", "/m.gguf", "/o.json", language="de", glossary="Grafana, Ozon")
+    cmd = nt.build_command(
+        "/bin/ns", "/a.wav", "/m.gguf", "/o.json", language="de", glossary="Grafana, Ozon"
+    )
     assert cmd[:3] == ["/bin/ns", "transcribe", "/a.wav"]
     for flag in ("--word-times", "--diarize", "--force"):
         assert flag in cmd
@@ -120,6 +130,8 @@ def test_runtime_and_model_resolution(monkeypatch, tmp_path):
 def test_eta_has_its_own_initial_factor_and_calibration(tmp_path):
     cache = str(tmp_path / "calibration.json")
     profile = "NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-AD-IQ4_NL:nemotron35:nemotron:auto:forced"
-    assert eta_helper.get_factor("metal", profile, "Apple M4 Max", cache) == (.3, "chip_default", "Nemotron 3.5 (Metal)")
+    assert eta_helper.get_factor("metal", profile, "Apple M4 Max", cache) == (
+        .3, "chip_default", "Nemotron 3.5 (Metal)"
+    )
     eta_helper.record("metal", profile, 600, 120, cache)
     assert eta_helper.get_factor("metal", profile, "Apple M4 Max", cache)[:2] == (.2, "calibrated")

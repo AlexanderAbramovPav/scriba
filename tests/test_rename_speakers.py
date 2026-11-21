@@ -1,4 +1,6 @@
-import subprocess, sys, pathlib
+import pathlib
+import subprocess
+import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 SCRIPT = HERE.parent / "scripts" / "rename_speakers.py"
@@ -26,7 +28,9 @@ speakers_detected: 2
 
 
 def write(tmp_path):
-    p = tmp_path / "t.md"; p.write_text(MD, encoding="utf-8"); return p
+    p = tmp_path / "t.md"
+    p.write_text(MD, encoding="utf-8")
+    return p
 
 
 def test_positional_mapping(tmp_path):
@@ -39,7 +43,8 @@ def test_positional_mapping(tmp_path):
 
 
 def test_explicit_map_and_out(tmp_path):
-    p = write(tmp_path); o = tmp_path / "named.md"
+    p = write(tmp_path)
+    o = tmp_path / "named.md"
     subprocess.run([sys.executable, str(SCRIPT), str(p),
                     "--map", "Speaker 2=Аня,Speaker 1=Иван", "--out", str(o)], check=True)
     out = o.read_text(encoding="utf-8")
@@ -49,7 +54,8 @@ def test_explicit_map_and_out(tmp_path):
 
 def test_zero_renamed_fails_and_leaves_file_unchanged(tmp_path):
     # PR #9's `--map "Hablante 1=…"` used to print "Renamed 2 speaker(s)" and exit 0.
-    p = write(tmp_path); o = tmp_path / "named.md"
+    p = write(tmp_path)
+    o = tmp_path / "named.md"
     r = subprocess.run([sys.executable, str(SCRIPT), str(p),
                         "--map", "Hablante 1=Alice,Hablante 2=Bob", "--out", str(o)],
                        capture_output=True, text=True)

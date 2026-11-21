@@ -14,7 +14,8 @@ renders as "н е к у ю". If timestamps are absent, needs_alignment=True and 
 caller aligns the text with whisperx.align (wav2vec) as a fallback.
 """
 from __future__ import annotations
-import os, sys
+import os
+import sys
 
 
 def _is_sep(tok: str) -> bool:
@@ -88,7 +89,8 @@ def _encoder_path(mdir):
 
 
 def transcribe(audio_path, mdir=None):  # pragma: no cover - needs sherpa-onnx + model
-    import sherpa_onnx, soundfile as sf
+    import sherpa_onnx
+    import soundfile as sf
     from faster_whisper.vad import get_speech_timestamps, VadOptions
     mdir = mdir or model_dir()
     recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
@@ -109,9 +111,12 @@ def transcribe(audio_path, mdir=None):  # pragma: no cover - needs sherpa-onnx +
         recognizer.decode_stream(s)
         r = s.result
         start, end = span["start"] / sr, span["end"] / sr
-        part = normalize_segments({"text": r.text, "tokens": list(getattr(r, "tokens", [])),
-                                   "timestamps": list(getattr(r, "timestamps", [])),
-                                   "durations": list(getattr(r, "durations", []))}, character_tokens=True)
+        part = normalize_segments(
+            {"text": r.text, "tokens": list(getattr(r, "tokens", [])),
+             "timestamps": list(getattr(r, "timestamps", [])),
+             "durations": list(getattr(r, "durations", []))},
+            character_tokens=True,
+        )
         needs_alignment = needs_alignment or part["needs_alignment"]
         for seg in part["segments"]:
             if not seg["text"]:

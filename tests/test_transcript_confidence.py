@@ -1,6 +1,7 @@
-import pathlib, sys
-HERE = pathlib.Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "scripts"))
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 import transcript_confidence as tc
 
 
@@ -63,7 +64,9 @@ def test_enrich_numpy_inputs_are_json_native():
         import numpy as np
     except ImportError:
         return
-    import json, pathlib, sys
+    import json
+    import pathlib
+    import sys
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
     import jsonsafe
     segments = [{"start": 0.0, "end": 1.0, "speaker": "A", "text": "hi",
@@ -85,9 +88,13 @@ def test_zero_width_word_not_flagged():
     # it as not-assessable (1.0) rather than 0.0 — else low_confidence_pct inflates.
     turns = [(0.0, 5.0, "A")]
     assert tc.speaker_confidence(0.4, 0.4, "A", turns) == 1.0
-    segments = [{"start": 0.0, "end": 1.0, "speaker": "A", "text": "in 1995",
-                 "words": [{"word": "in", "start": 0.0, "end": 0.3, "score": 0.9, "speaker": "A"},
-                           {"word": "1995", "start": 0.4, "end": 0.4, "score": 0.9, "speaker": "A"}]}]
+    segments = [{
+        "start": 0.0, "end": 1.0, "speaker": "A", "text": "in 1995",
+        "words": [
+            {"word": "in", "start": 0.0, "end": 0.3, "score": 0.9, "speaker": "A"},
+            {"word": "1995", "start": 0.4, "end": 0.4, "score": 0.9, "speaker": "A"},
+        ],
+    }]
     enriched, low = tc.enrich_segments(segments, turns)
     assert enriched[0]["flags"]["shaky_attribution"] is False
     assert low == 0.0

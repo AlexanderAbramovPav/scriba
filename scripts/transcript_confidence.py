@@ -18,7 +18,8 @@ def overlap_regions(turns):
     """Intervals where >=2 speakers are simultaneously active. O(n log n) sweep."""
     events = []
     for s, e, _ in turns:
-        events.append((s, 1)); events.append((e, -1))
+        events.append((s, 1))
+        events.append((e, -1))
     events.sort()
     regions, active, region_start = [], 0, None
     for t, delta in events:

@@ -11,7 +11,11 @@ embedded in the Markdown right under the textual quote — so a human reader
 can both read and *hear* the sample when they don't recognise the voice
 from the text alone.
 """
-import argparse, json, pathlib, subprocess, sys
+import argparse
+import json
+import pathlib
+import subprocess
+import sys
 from collections import Counter
 from datetime import date as _date
 
@@ -72,7 +76,9 @@ def map_speakers(segs):
     for s in segs:
         raw = s["speaker"]
         if raw not in mapping:
-            n += 1; mapping[raw] = f"Speaker {n}"; order.append(mapping[raw])
+            n += 1
+            mapping[raw] = f"Speaker {n}"
+            order.append(mapping[raw])
     for s in segs:
         s["spk"] = mapping[s["speaker"]]
     return order
@@ -175,7 +181,8 @@ def main():
     data = json.loads(pathlib.Path(a.input).read_text(encoding="utf-8"))
     segs, lang = load_segments(data)
     if not segs:
-        print("ERROR: no segments found in JSON", file=sys.stderr); sys.exit(2)
+        print("ERROR: no segments found in JSON", file=sys.stderr)
+        sys.exit(2)
     order = map_speakers(segs)
     pct = talk_time(segs)
     duration = hhmmss(max(s["end"] for s in segs))
@@ -222,8 +229,9 @@ def main():
                 out.append("")
                 out.append(f'<audio controls preload="none" src="{rel}"></audio>')
         elif a.reuse_clips and media_dir and (media_dir / f"speaker-{spk_idx}.wav").is_file():
+            rel = f"{a.clips_rel}/speaker-{spk_idx}.wav"
             out.append("")
-            out.append(f'<audio controls preload="none" src="{a.clips_rel}/speaker-{spk_idx}.wav"></audio>')
+            out.append(f'<audio controls preload="none" src="{rel}"></audio>')
         out.append("")
         out.append("Sample utterances:")
         for s in samples(segs, spk):
@@ -234,7 +242,8 @@ def main():
     for t in merge_turns(segs):
         mark = " ⚠︎" if t.get("flag") else ""
         out.append(f"**{t['spk']}** [{hhmmss(t['start'])}]{mark}")
-        out.append(t["text"]); out.append("")
+        out.append(t["text"])
+        out.append("")
 
     sys.stdout.write("\n".join(out).rstrip() + "\n")
 

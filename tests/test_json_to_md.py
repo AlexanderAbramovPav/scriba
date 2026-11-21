@@ -1,4 +1,7 @@
-import json, subprocess, sys, pathlib
+import json
+import pathlib
+import subprocess
+import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 SCRIPT = HERE.parent / "scripts" / "json_to_md.py"
@@ -8,7 +11,12 @@ SYNTH = {
     "segments": [
         {"start": 1.0, "end": 4.5, "text": "Привет всем, начнём встречу.", "speaker": "SPEAKER_00"},
         {"start": 4.6, "end": 6.0, "text": "Да, поехали.", "speaker": "SPEAKER_01"},
-        {"start": 6.1, "end": 9.0, "text": "Сегодня обсудим план на квартал.", "speaker": "SPEAKER_00"},
+        {
+            "start": 6.1,
+            "end": 9.0,
+            "text": "Сегодня обсудим план на квартал.",
+            "speaker": "SPEAKER_00",
+        },
     ],
 }
 
