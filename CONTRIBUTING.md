@@ -73,8 +73,11 @@ cd scriba
 # bootstrap the venv
 bash scripts/transcribe.sh --bootstrap
 
-# pytest isn't a runtime dep — install it once for the dev venv
-uv pip install --python .venv/bin/python pytest numpy
+# pytest and ruff aren't runtime deps — install them once for the dev venv
+uv pip install --python .venv/bin/python pytest numpy ruff==0.17.6
+
+# lint (CI runs the same check; config in pyproject.toml)
+.venv/bin/python -m ruff check .
 
 # run unit tests
 .venv/bin/python -m pytest tests/ -v
@@ -91,7 +94,7 @@ separate real-audio smoke test when changing inference behavior.
 ## Code style
 
 - **bash**: `set -euo pipefail` at the top of every script. Quote variables. Use `[[ ]]` over `[ ]`. Use `trap '...' EXIT` for cleanup. Don't shell out to `python3` if the value can be computed in pure bash; do shell out to a python helper if the logic is non-trivial (cf. `eta_helper.py`).
-- **Python**: type hints encouraged but not enforced. No formatter pinned; aim for readability. f-strings over `%`. Standard library first, third-party only when justified.
+- **Python**: type hints encouraged but not enforced. No formatter pinned; aim for readability. `ruff check .` (pycodestyle `E` + pyflakes `F`, 100-char lines, see `pyproject.toml`) must pass — CI fails on any finding. f-strings over `%`. Standard library first, third-party only when justified.
 - **General**: keep changes minimal and surgical. A bug fix doesn't need surrounding cleanup; a one-shot operation doesn't need a helper. Three similar lines is better than a premature abstraction. The bash + Python split is intentional — the bash is the orchestrator, the Python wrappers are the heavy lifters; don't blur the line.
 
 ## License of contributions
