@@ -22,6 +22,13 @@ versioning follows [Semantic Versioning](https://semver.org/).
   every earlier entry. It now leaves the file untouched, prints the path and the reason, and
   exits 1; `transcribe.sh` no longer hides that error and prints a `WARN:` line (the transcript
   is still written). The atomic write now also removes its temp file when the write fails.
+  Follow-ups: a dangling `index.json` symlink is refused instead of replaced, a valid symlink is
+  updated in place (the link stays); the file mode survives an update (was reset to 0600); a
+  `null` or numeric `date` no longer crashes the sort; fsync on mounts that do not support it is
+  skipped; an index that exists but cannot be stat'ed (EIO, ESTALE, EACCES) is refused instead
+  of being taken for "no index yet"; every CLI failure is one `scriba:` line, no traceback (bad
+  arguments exit 2). A failed index update is kept as `index-not-updated.txt` in the recording's
+  `.transcript/` folder, reported by `--status`, and shown in the macOS notification.
 - `rename_speakers.py` reported the size of the mapping as "Renamed N speaker(s)" even when no
   label matched. It now counts real replacements, warns about mapping keys with no `Speaker N`
   label, and exits 1 without writing when nothing was renamed.
