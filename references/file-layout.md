@@ -69,6 +69,11 @@ whole folder tree:
 - **Upsert by `id`** — re-transcribing the same recording replaces its entry rather
   than duplicating it. Writes are **atomic** (temp file + `os.replace`), so a crash
   mid-write can never corrupt the index.
+- **An unreadable index is never overwritten.** If `index.json` exists but is not valid
+  UTF-8 JSON of the shape above (truncated, empty, edited by hand), `upsert` leaves the
+  file untouched, prints the path and the reason to stderr and exits 1. The transcript
+  itself is still written; `transcribe.sh` prints a `WARN:` line. Fix or restore the
+  file, or move it away to start a new index.
 - Entries are sorted by `date`.
 - `folder` is the per-recording folder name, relative to the index's parent dir.
 
