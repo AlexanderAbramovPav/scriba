@@ -25,8 +25,10 @@ versioning follows [Semantic Versioning](https://semver.org/).
   Follow-ups: a dangling `index.json` symlink is refused instead of replaced, a valid symlink is
   updated in place (the link stays); the file mode survives an update (was reset to 0600); a
   `null` or numeric `date` no longer crashes the sort; fsync on mounts that do not support it is
-  skipped; every CLI failure is one `scriba:` line, no traceback; a failed index update is also
-  shown in the final progress line and the macOS notification.
+  skipped; an index that exists but cannot be stat'ed (EIO, ESTALE, EACCES) is refused instead
+  of being taken for "no index yet"; every CLI failure is one `scriba:` line, no traceback (bad
+  arguments exit 2). A failed index update is kept as `index-not-updated.txt` in the recording's
+  `.transcript/` folder, reported by `--status`, and shown in the macOS notification.
 - `rename_speakers.py` reported the size of the mapping as "Renamed N speaker(s)" even when no
   label matched. It now counts real replacements, warns about mapping keys with no `Speaker N`
   label, and exits 1 without writing when nothing was renamed.

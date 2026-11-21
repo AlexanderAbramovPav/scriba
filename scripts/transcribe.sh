@@ -213,7 +213,12 @@ if [[ "${1:-}" == "--status" ]]; then
     OUT_STEM_S="$(python3 "$SKILL_DIR/scripts/naming.py" stem "$STEM_S" 2>/dev/null || echo "$STEM_S")"
     TRANSCRIPT_OUT="$(dirname "$IN")/$OUT_STEM_S.transcript/$OUT_STEM_S.md"
     if [[ -f "$TRANSCRIPT_OUT" ]]; then
-      echo "stage=done · transcript: $TRANSCRIPT_OUT"
+      INDEX_ERR_S="$(dirname "$TRANSCRIPT_OUT")/index-not-updated.txt"
+      if [[ -f "$INDEX_ERR_S" ]]; then
+        echo "stage=done · transcript: $TRANSCRIPT_OUT · corpus index NOT updated: see $INDEX_ERR_S"
+      else
+        echo "stage=done · transcript: $TRANSCRIPT_OUT"
+      fi
       exit 0
     fi
     echo "no progress file yet at $PROG" >&2
@@ -576,12 +581,24 @@ except Exception: d={}
 print(json.dumps({'id':sys.argv[1],'title':sys.argv[2],'date':sys.argv[3],'lang':d.get('language','auto'),'duration':int(sys.argv[4]),'folder':sys.argv[5],'low_conf_pct':float(d.get('low_confidence_pct',0))}))" \
   "$REC_ID" "$OUT_STEM" "$(date +%Y-%m-%d)" "$AUDIO_SEC" "$OUT_STEM.transcript" "$JSON" || true)"
 # Non-fatal (the transcript is already written), but never silent: update_index.py
-# refuses to overwrite an unreadable index.json and says why on stderr. The note also
-# goes into the final progress line and the notification, since the log is deleted.
-INDEX_NOTE=""
-if [[ -z "$ENTRY" ]] || ! python3 "$SKILL_DIR/scripts/update_index.py" upsert "$OUTDIR/.scriba" "$ENTRY"; then
+# refuses to overwrite an unreadable index.json and says why on stderr. The log and
+# progress.json are deleted on success, so the reason is also kept in the recording's
+# folder as index-not-updated.txt (read by --status) and shown in the notification.
+INDEX_NOTE=""; INDEX_ERR=""
+INDEX_ERR_FILE="$REC_DIR/index-not-updated.txt"
+rm -f "$INDEX_ERR_FILE"
+if [[ -z "$ENTRY" ]]; then
+  INDEX_ERR="could not build the index entry for this recording (see the error above)"
+elif ! INDEX_ERR="$(python3 "$SKILL_DIR/scripts/update_index.py" upsert "$OUTDIR/.scriba" "$ENTRY" 2>&1)"; then
+  echo "$INDEX_ERR" >&2
+else
+  INDEX_ERR=""
+fi
+if [[ -n "$INDEX_ERR" ]]; then
   INDEX_NOTE="; corpus index NOT updated"
-  echo "WARN: transcript saved, but the corpus index $OUTDIR/.scriba/index.json was not updated (see above)." >&2
+  printf '%s\n' "The corpus index $OUTDIR/.scriba/index.json was not updated for this recording:" "$INDEX_ERR" \
+    > "$INDEX_ERR_FILE" 2>/dev/null || true
+  echo "WARN: transcript saved, but the corpus index $OUTDIR/.scriba/index.json was not updated (details: $INDEX_ERR_FILE)." >&2
 fi
 
 # Record observed factor — but only on files long enough for the per-audio-second rate
@@ -595,6 +612,10 @@ if [[ $AUDIO_SEC -ge 60 && $TRANSCRIBE_EL -gt 10 ]]; then
   python3 "$ETA_HELPER" record "$DEVICE" "$ETA_MODEL" "$AUDIO_SEC" "$TRANSCRIBE_EL" "$CALIB_FILE" 2>/dev/null || true
 fi
 
+# Stop the ticker before the final write so it can't overwrite (or, after the rm below,
+# recreate) progress.json.
+kill $TICKER_PID 2>/dev/null || true
+wait $TICKER_PID 2>/dev/null || true   # reap the ticker so no late line can trail stdout
 echo "done" > "$STAGE_FILE"
 cat > "$PROGRESS" <<JSON
 {"stage":"done","stage_sec":0,"elapsed_sec":$EL,"audio_sec":$AUDIO_SEC,"audio_processed_sec":$AUDIO_SEC,"audio_processed_pct":100,"audio_source":"measured","eta_total_sec":$EL,"eta_remaining_sec":0,"pct":100,"warmup_sec":$WARMUP_SEC,"factor":$FACTOR,"eta_source":"$ETA_SOURCE","chip":"$CHIP_LABEL","started_at":$START_TS,"last_log":"transcript ready$INDEX_NOTE"}
@@ -613,9 +634,7 @@ fi
 # their purpose. Delete them so the user is left with only the human-facing output:
 # the `<title>.transcript/` folder (`<title>.md` + `data/`). On any earlier failure we
 # `exit` before this line, so the log stays on disk for post-mortem.
-# Stop the ticker explicitly so it doesn't recreate progress.json in the race window.
-kill $TICKER_PID 2>/dev/null || true
-wait $TICKER_PID 2>/dev/null || true   # reap the ticker so no late line can trail stdout
+# A failed corpus-index update survives as index-not-updated.txt in that folder.
 rm -f "$LOG" "$PROGRESS"
 
 echo "$OUT"   # MUST be the last line on stdout — callers parse it as the output path

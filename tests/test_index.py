@@ -178,3 +178,86 @@ def test_cli_reports_other_errors_without_traceback(tmp_path):
     res = _run_cli("upsert", str(scriba), json.dumps({"title": "no id"}))
     assert res.returncode == 1 and "string 'id'" in res.stderr
     assert "Traceback" not in res.stderr
+
+
+def test_upsert_refuses_index_it_cannot_stat(tmp_path, monkeypatch):
+    scriba = tmp_path / ".scriba"
+    ui.upsert(scriba, _entry("a"))
+    original = (scriba / "index.json").read_bytes()
+    real_lstat = os.lstat
+
+    def flaky_lstat(path, *a, **kw):
+        if str(path).endswith("index.json"):
+            raise OSError(errno.EIO, "Input/output error")
+        return real_lstat(path, *a, **kw)
+
+    monkeypatch.setattr(ui.os, "lstat", flaky_lstat)
+    with pytest.raises(ui.IndexReadError, match="cannot access"):
+        ui.upsert(scriba, _entry("b"))
+    _assert_untouched(scriba, original)
+
+
+def test_upsert_refuses_directory_named_index(tmp_path):
+    scriba = tmp_path / ".scriba"
+    (scriba / "index.json").mkdir(parents=True)
+    with pytest.raises(ui.IndexReadError, match="not a regular file"):
+        ui.upsert(scriba, _entry("a"))
+
+
+def test_upsert_creates_missing_symlink_target(tmp_path):
+    synced = tmp_path / "synced"
+    synced.mkdir()
+    scriba = tmp_path / ".scriba"
+    scriba.mkdir()
+    (scriba / "index.json").symlink_to(synced / "index.json")
+    ui.upsert(scriba, _entry("a"))
+    assert (scriba / "index.json").is_symlink()
+    assert json.loads((synced / "index.json").read_text())["recordings"][0]["id"] == "a"
+
+
+def test_upsert_refuses_symlink_loop(tmp_path):
+    scriba = tmp_path / ".scriba"
+    scriba.mkdir()
+    (scriba / "index.json").symlink_to(scriba / "index.json")
+    with pytest.raises(ui.IndexReadError):
+        ui.upsert(scriba, _entry("a"))
+    assert (scriba / "index.json").is_symlink()
+
+
+def test_upsert_refuses_too_deep_index(tmp_path):
+    scriba = tmp_path / ".scriba"
+    scriba.mkdir()
+    deep = b"[" * 100000 + b"]" * 100000
+    (scriba / "index.json").write_bytes(deep)
+    with pytest.raises(ui.IndexReadError):
+        ui.upsert(scriba, _entry("a"))
+    _assert_untouched(scriba, deep)
+
+
+@pytest.mark.parametrize("code", [errno.ENOTSUP, errno.ENOSYS])
+def test_upsert_ignores_other_unsupported_fsync(tmp_path, monkeypatch, code):
+    def no_fsync(fd):
+        raise OSError(code, "not supported")
+
+    monkeypatch.setattr(ui.os, "fsync", no_fsync)
+    ui.upsert(tmp_path / ".scriba", _entry("a"))
+    assert (tmp_path / ".scriba" / "index.json").exists()
+
+
+def test_upsert_fsync_io_error_still_fails(tmp_path, monkeypatch):
+    def bad_fsync(fd):
+        raise OSError(errno.EIO, "Input/output error")
+
+    monkeypatch.setattr(ui.os, "fsync", bad_fsync)
+    scriba = tmp_path / ".scriba"
+    with pytest.raises(OSError):
+        ui.upsert(scriba, _entry("a"))
+    assert not (scriba / "index.json").exists()
+    assert not list(scriba.glob("*.tmp"))
+
+
+@pytest.mark.parametrize("args", [(), ("upsert",), ("upsert", "x"), ("upser", "x", "{}")])
+def test_cli_bad_arguments_exit_2(args):
+    res = _run_cli(*args)
+    assert res.returncode == 2
+    assert "usage:" in res.stderr and "Traceback" not in res.stderr
