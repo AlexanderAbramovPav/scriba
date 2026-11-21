@@ -5,7 +5,10 @@ Usage:
   rename_speakers.py FILE.md "Alice,Bob"                 # positional -> Speaker 1, 2, ...
   rename_speakers.py FILE.md --map "Speaker 1=Alice,Speaker 2=Bob" [--out OUT.md]
 """
-import argparse, pathlib, re, sys
+import argparse
+import pathlib
+import re
+import sys
 
 
 def build_mapping(positional, explicit):
@@ -50,7 +53,8 @@ def main():
 
     mapping = build_mapping(a.positional, a.explicit)
     if not mapping:
-        print("ERROR: no mapping provided", file=sys.stderr); sys.exit(2)
+        print("ERROR: no mapping provided", file=sys.stderr)
+        sys.exit(2)
 
     src = pathlib.Path(a.file)
     dest = pathlib.Path(a.out) if a.out else src
@@ -60,9 +64,13 @@ def main():
         print(f"WARNING: no bold label in {src} for: {', '.join(unmatched)} "
               "(transcripts label speakers as `Speaker N`)", file=sys.stderr)
     if not renamed:
-        print(f"ERROR: renamed 0 speakers; {src} left unchanged", file=sys.stderr); sys.exit(1)
+        print(f"ERROR: renamed 0 speakers; {src} left unchanged", file=sys.stderr)
+        sys.exit(1)
     dest.write_text(text, encoding="utf-8")
-    print(f"Renamed {len(renamed)} speaker(s), {sum(renamed.values())} label(s) -> {dest}", file=sys.stderr)
+    print(
+        f"Renamed {len(renamed)} speaker(s), {sum(renamed.values())} label(s) -> {dest}",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":

@@ -29,7 +29,8 @@ def resolve_glossary(recording_dir):
     seen, merged = set(), []
     for t in project + glob:
         if t not in seen:
-            seen.add(t); merged.append(t)
+            seen.add(t)
+            merged.append(t)
     return merged
 
 

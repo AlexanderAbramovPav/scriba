@@ -1,14 +1,17 @@
-import pathlib, sys
-HERE = pathlib.Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "scripts"))
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 import glossary as g
 
 
 def test_resolve_project_over_global(tmp_path, monkeypatch):
-    proj = tmp_path / "rec"; proj.mkdir()
+    proj = tmp_path / "rec"
+    proj.mkdir()
     (proj / ".scriba").mkdir()
     (proj / ".scriba" / "glossary.txt").write_text("GolOps\nPMEF\n", encoding="utf-8")
-    home = tmp_path / "home"; (home / ".config" / "scriba").mkdir(parents=True)
+    home = tmp_path / "home"
+    (home / ".config" / "scriba").mkdir(parents=True)
     (home / ".config" / "scriba" / "glossary").write_text("PMEF\nNeMo\n", encoding="utf-8")
     monkeypatch.setenv("HOME", str(home))
     terms = g.resolve_glossary(proj)

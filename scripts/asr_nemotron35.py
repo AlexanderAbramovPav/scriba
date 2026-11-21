@@ -60,8 +60,11 @@ def embedded_speakers(diarizer="auto", num_speakers=None, enroll=None) -> bool:
 
 def check_duration(audio_sec: float) -> None:
     if audio_sec > MAX_AUDIO_SEC:
-        raise ValueError(f"Nemotron 3.5 Transcribe accepts at most {MAX_AUDIO_SEC // 60} minutes "
-                         f"per request ({audio_sec / 60:.1f} min given); split the file or use the default backend")
+        raise ValueError(
+            f"Nemotron 3.5 Transcribe accepts at most {MAX_AUDIO_SEC // 60} minutes "
+            f"per request ({audio_sec / 60:.1f} min given); "
+            "split the file or use the default backend"
+        )
 
 
 def instruction(language: str | None, glossary: str | None = None, speakers: bool = True) -> str:
@@ -138,7 +141,9 @@ def speaker_turns(segments):
     return turns
 
 
-def transcribe(audio_path, model=None, language=None, glossary=None, diarize=True):  # pragma: no cover - needs the 21 GB model
+def transcribe(  # pragma: no cover - needs the 21 GB model
+    audio_path, model=None, language=None, glossary=None, diarize=True,
+):
     binary = executable()
     if not binary:
         raise FileNotFoundError("nemo-speech is missing; see references/local-backends.md")

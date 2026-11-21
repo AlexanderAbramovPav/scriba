@@ -69,9 +69,11 @@ def parse_rttm(path):
 def _boundaries(ref_turns, hyp_turns):
     pts = set()
     for s, e, _ in ref_turns:
-        pts.add(s); pts.add(e)
+        pts.add(s)
+        pts.add(e)
     for s, e, _ in hyp_turns:
-        pts.add(s); pts.add(e)
+        pts.add(s)
+        pts.add(e)
     return sorted(pts)
 
 

@@ -6,7 +6,8 @@ generic/uninformative, the agent supplies a --title; we kebab that. Pure string
 logic. The CLI entry prints the resolved stem for transcribe.sh.
 """
 from __future__ import annotations
-import re, sys
+import re
+import sys
 
 _GENERIC = re.compile(
     r"^(zoom[_\-]?\d*|gmt[\d_\-]+|rec(ording)?\d*|video\d*|audio\d*|untitled\d*|"

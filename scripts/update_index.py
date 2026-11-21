@@ -6,7 +6,10 @@ AI reads ONE file to find a meeting instead of scanning the folder. Atomic write
 CLI: update_index.py upsert <scriba_dir> <entry_json>
 """
 from __future__ import annotations
-import json, os, sys, tempfile
+import json
+import os
+import sys
+import tempfile
 from pathlib import Path
 
 
@@ -14,7 +17,8 @@ def upsert(scriba_dir, entry):
     # Last-writer-wins read-modify-write: assumes single-user / sequential runs. Two
     # transcriptions writing into the same .scriba/ at the same moment could read the
     # same base and the later os.replace() would drop the earlier one's entry.
-    scriba_dir = Path(scriba_dir); scriba_dir.mkdir(parents=True, exist_ok=True)
+    scriba_dir = Path(scriba_dir)
+    scriba_dir.mkdir(parents=True, exist_ok=True)
     idx_path = scriba_dir / "index.json"
     data = {"schema_version": 1, "recordings": []}
     if idx_path.exists():

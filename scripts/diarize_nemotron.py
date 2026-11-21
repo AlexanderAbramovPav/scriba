@@ -16,7 +16,10 @@ def select_backend(requested="auto", *, num_speakers=None, enroll=None):
         raise ValueError("Speaker-count hint must be positive")
     needs_pyannote = bool(enroll) or num_speakers is not None
     if requested == "nemotron" and needs_pyannote:
-        raise ValueError("Nemotron does not support enrollment or an exact speaker-count hint; use --diarizer pyannote")
+        raise ValueError(
+            "Nemotron does not support enrollment or an exact speaker-count hint; "
+            "use --diarizer pyannote"
+        )
     if requested == "pyannote" or needs_pyannote:
         return "pyannote"
     binary = executable()
@@ -69,7 +72,9 @@ def diarize(audio_path: str, device="auto", num_speakers=None):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Resolve the shared language-independent diarization backend")
+    parser = argparse.ArgumentParser(
+        description="Resolve the shared language-independent diarization backend"
+    )
     parser.add_argument("--backend", default="auto")
     parser.add_argument("--num-speakers", type=int)
     parser.add_argument("--enroll")

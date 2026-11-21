@@ -179,17 +179,24 @@ def main() -> int:
     ap.add_argument("--audio", required=True, help="path to 16kHz mono WAV")
     ap.add_argument("--output", required=True, help="path to write result JSON")
     ap.add_argument("--model", default=None)
-    ap.add_argument("--asr", default="whisperx", choices=["whisperx", "gigaam", "gigaam3", "mlx", "nemotron35"])
+    ap.add_argument(
+        "--asr",
+        default="whisperx",
+        choices=["whisperx", "gigaam", "gigaam3", "mlx", "nemotron35"],
+    )
     ap.add_argument("--device", default="cpu", choices=["cpu", "cuda", "auto"])
     ap.add_argument("--language", default=None)
     ap.add_argument("--batch-size", type=int, default=1,
                     help="whisperX batch size. 1 = smoothest per-segment streaming on CPU. "
-                         "Larger values can be faster on GPU but stall progress until the batch finishes.")
+                         "Larger values can be faster on GPU but stall progress until the batch "
+                         "finishes.")
     ap.add_argument("--glossary", default=None,
                     help="comma-separated bias terms (initial_prompt/hotwords)")
-    ap.add_argument("--annotate", action="store_true", help="run speaker diarization after transcription")
+    ap.add_argument("--annotate", action="store_true",
+                    help="run speaker diarization after transcription")
     ap.add_argument("--hf-token", default=None)
-    ap.add_argument("--hf-token-file", default=None, help="read HF token locally without putting it in process arguments")
+    ap.add_argument("--hf-token-file", default=None,
+                    help="read HF token locally without putting it in process arguments")
     ap.add_argument("--num-speakers", type=int, default=None)
     ap.add_argument("--diarizer", choices=["auto", "pyannote", "nemotron"], default="auto")
     ap.add_argument("--diar-device", choices=["auto", "cpu", "mps", "cuda"], default="auto")
@@ -257,8 +264,10 @@ def main() -> int:
         model_file = asr_nemotron35.model_path(args.model)
         args.model = model_file.name  # recorded without the local path
         log(f"transcribing (Nemotron 3.5 Transcribe, {args.model})")
-        result = asr_nemotron35.transcribe(args.audio, str(model_file), args.language, args.glossary,
-                                           diarize=speakers_from_asr)
+        result = asr_nemotron35.transcribe(
+            args.audio, str(model_file), args.language, args.glossary,
+            diarize=speakers_from_asr,
+        )
         language = result.get("language") or args.language or "en"
         alignment_used = "native"
         timings["asr"] = round(time.perf_counter() - asr_started, 3)
@@ -286,15 +295,18 @@ def main() -> int:
             log("loading alignment model")
             try:
                 with Heartbeat("alignment in progress"):
-                    align_model, metadata = whisperx.load_align_model(language_code=language, device=args.device)
-                    result = whisperx.align(result["segments"], align_model, metadata, audio, args.device,
-                                            return_char_alignments=False)
+                    align_model, metadata = whisperx.load_align_model(
+                        language_code=language, device=args.device)
+                    result = whisperx.align(
+                        result["segments"], align_model, metadata, audio, args.device,
+                        return_char_alignments=False)
                 del align_model
                 alignment_used = "forced"
                 log(f"alignment done: {len(result.get('segments', []))} aligned segments")
             except Exception as e:
                 alignment_used = "none"
-                log(f"WARN: alignment failed ({type(e).__name__}: {e}); using unaligned MLX segments")
+                log(f"WARN: alignment failed ({type(e).__name__}: {e}); "
+                    "using unaligned MLX segments")
             timings["alignment"] = round(time.perf_counter() - alignment_started, 3)
     elif args.asr == "gigaam":  # pragma: no cover - needs sherpa-onnx + GigaAM model
         import asr_gigaam
@@ -324,7 +336,8 @@ def main() -> int:
                 del align_model
                 log(f"alignment done: {len(result.get('segments', []))} aligned segments")
             except Exception as e:  # mirror the whisperX path: degrade, don't crash
-                log(f"WARN: GigaAM alignment failed ({type(e).__name__}: {e}); using unaligned segments")
+                log(f"WARN: GigaAM alignment failed ({type(e).__name__}: {e}); "
+                    "using unaligned segments")
                 result = {"segments": ga["segments"]}
                 alignment_used = "none"
             timings["alignment"] = round(time.perf_counter() - alignment_started, 3)
@@ -335,12 +348,17 @@ def main() -> int:
     else:
         compute_type = "int8" if args.device == "cpu" else "float16"
         log(f"loading model {args.model} (device={args.device}, compute_type={compute_type})")
+        asr_options = (
+            {"initial_prompt": args.glossary, "hotwords": args.glossary}
+            if args.glossary
+            else None
+        )
         model = whisperx.load_model(
             args.model,
             device=args.device,
             compute_type=compute_type,
             language=args.language,
-            asr_options={"initial_prompt": args.glossary, "hotwords": args.glossary} if args.glossary else None,
+            asr_options=asr_options,
         )
 
         log(f"loading audio: {args.audio}")
@@ -367,7 +385,8 @@ def main() -> int:
         alignment_started = time.perf_counter()
         try:
             with Heartbeat("alignment in progress"):
-                align_model, metadata = whisperx.load_align_model(language_code=language, device=args.device)
+                align_model, metadata = whisperx.load_align_model(
+                    language_code=language, device=args.device)
                 result = whisperx.align(
                     raw_segments,
                     align_model,
@@ -387,7 +406,8 @@ def main() -> int:
     # Preflight: community-1 + token= need pyannote.audio>=4.0. whisply pins 3.4.0, so a stale
     # install would otherwise die deep inside from_pretrained() with the cryptic token/plda
     # TypeError from issue #3. Read the version cheaply (importlib.metadata, no torch import) and
-    # surface an actionable message. The bootstrap self-heals; this guard is the belt to that braces.
+    # surface an actionable message. The bootstrap self-heals; this guard is the belt to
+    # that braces.
     diar_ready, diar_msg = True, ""
     if args.annotate and args.hf_token and not use_nemotron:
         import importlib.metadata as _ilm
@@ -501,7 +521,8 @@ def main() -> int:
                             whisperx.load_audio(clip)[None, :]), "sample_rate": _SR})
                         ref_arr = getattr(ref_out, "speaker_embeddings", None)
                         if ref_arr is not None and len(ref_arr):
-                            ref_embs[name] = [float(x) for x in ref_arr[0]]  # single-speaker clip -> row 0
+                            # single-speaker clip -> row 0
+                            ref_embs[name] = [float(x) for x in ref_arr[0]]
                     mapping = _enroll.match_clusters(cluster_embs, ref_embs)
                     for seg in result.get("segments", []):
                         if seg.get("speaker") in mapping:
@@ -552,7 +573,9 @@ def main() -> int:
         "pipeline": {"asr": args.asr, "model": args.model, "diarizer": diarizer_used,
                      "alignment": alignment_used},
         "timings_sec": {**timings, "total": round(time.perf_counter() - started, 3)},
-        "diarization_turns": [{"start": s, "end": e, "speaker": spk} for s, e, spk in overlap_turns],
+        "diarization_turns": [
+            {"start": s, "end": e, "speaker": spk} for s, e, spk in overlap_turns
+        ],
     }
     import jsonsafe
     Path(args.output).write_text(
