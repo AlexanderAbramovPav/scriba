@@ -1,5 +1,8 @@
+import errno
 import json
+import os
 import pathlib
+import stat
 import subprocess
 import sys
 
@@ -97,3 +100,81 @@ def test_cli_reports_unreadable_index(tmp_path):
     assert str(scriba / "index.json") in res.stderr
     assert "Traceback" not in res.stderr
     _assert_untouched(scriba, content)
+
+
+def _run_cli(*args):
+    return subprocess.run([sys.executable, str(pathlib.Path(ui.__file__)), *args],
+                          capture_output=True, text=True)
+
+
+def test_upsert_refuses_dangling_symlink(tmp_path):
+    scriba = tmp_path / ".scriba"
+    scriba.mkdir()
+    link = scriba / "index.json"
+    link.symlink_to(tmp_path / "unmounted" / "index.json")
+    with pytest.raises(ui.IndexReadError, match="does not exist"):
+        ui.upsert(scriba, _entry("new"))
+    assert link.is_symlink() and not link.exists()
+    assert not list(scriba.glob("*.tmp"))
+
+
+def test_upsert_writes_through_valid_symlink(tmp_path):
+    real_dir = tmp_path / "synced"
+    real_dir.mkdir()
+    real = real_dir / "index.json"
+    real.write_text(json.dumps({"schema_version": 1, "recordings": [_entry("a")]}))
+    scriba = tmp_path / ".scriba"
+    scriba.mkdir()
+    (scriba / "index.json").symlink_to(real)
+    ui.upsert(scriba, _entry("b"))
+    assert (scriba / "index.json").is_symlink()
+    ids = [r["id"] for r in json.loads(real.read_text())["recordings"]]
+    assert sorted(ids) == ["a", "b"]
+
+
+def test_upsert_tolerates_non_string_dates(tmp_path):
+    scriba = tmp_path / ".scriba"
+    scriba.mkdir()
+    (scriba / "index.json").write_text(json.dumps(
+        {"recordings": [{"id": "a", "date": None}, {"id": "b", "date": 5}]}))
+    ui.upsert(scriba, _entry("c"))
+    ids = {r["id"] for r in json.loads((scriba / "index.json").read_text())["recordings"]}
+    assert ids == {"a", "b", "c"}
+
+
+def test_upsert_keeps_existing_file_mode(tmp_path):
+    scriba = tmp_path / ".scriba"
+    ui.upsert(scriba, _entry("a"))
+    idx = scriba / "index.json"
+    os.chmod(idx, 0o644)
+    ui.upsert(scriba, _entry("b"))
+    assert stat.S_IMODE(idx.stat().st_mode) == 0o644
+
+
+def test_new_index_mode_follows_umask(tmp_path):
+    old = os.umask(0o022)
+    try:
+        ui.upsert(tmp_path / ".scriba", _entry("a"))
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE((tmp_path / ".scriba" / "index.json").stat().st_mode) == 0o644
+
+
+def test_upsert_ignores_unsupported_fsync(tmp_path, monkeypatch):
+    def no_fsync(fd):
+        raise OSError(errno.EINVAL, "Invalid argument")
+
+    monkeypatch.setattr(ui.os, "fsync", no_fsync)
+    scriba = tmp_path / ".scriba"
+    ui.upsert(scriba, _entry("a"))
+    assert json.loads((scriba / "index.json").read_text())["recordings"][0]["id"] == "a"
+
+
+def test_cli_reports_other_errors_without_traceback(tmp_path):
+    scriba = tmp_path / ".scriba"
+    res = _run_cli("upsert", str(scriba), "{not json")
+    assert res.returncode == 1 and "scriba: index not updated" in res.stderr
+    assert "Traceback" not in res.stderr
+    res = _run_cli("upsert", str(scriba), json.dumps({"title": "no id"}))
+    assert res.returncode == 1 and "string 'id'" in res.stderr
+    assert "Traceback" not in res.stderr

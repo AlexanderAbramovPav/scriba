@@ -71,8 +71,10 @@ whole folder tree:
   mid-write can never corrupt the index.
 - **An unreadable index is never overwritten.** If `index.json` exists but is not valid
   UTF-8 JSON of the shape above (truncated, empty, edited by hand), `upsert` leaves the
-  file untouched, prints the path and the reason to stderr and exits 1. The transcript
-  itself is still written; `transcribe.sh` prints a `WARN:` line. Fix or restore the
+  file untouched, prints the path and the reason to stderr and exits 1. The same applies
+  to a dangling `index.json` symlink; a valid symlink is updated in place. The transcript
+  itself is still written; `transcribe.sh` prints a `WARN:` line and adds "corpus index NOT
+  updated" to its final status and notification. Fix or restore the
   file, or move it away to start a new index.
 - Entries are sorted by `date`.
 - `folder` is the per-recording folder name, relative to the index's parent dir.

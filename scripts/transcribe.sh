@@ -574,12 +574,14 @@ ENTRY="$(python3 -c "import json,sys
 try: d=json.load(open(sys.argv[6]))
 except Exception: d={}
 print(json.dumps({'id':sys.argv[1],'title':sys.argv[2],'date':sys.argv[3],'lang':d.get('language','auto'),'duration':int(sys.argv[4]),'folder':sys.argv[5],'low_conf_pct':float(d.get('low_confidence_pct',0))}))" \
-  "$REC_ID" "$OUT_STEM" "$(date +%Y-%m-%d)" "$AUDIO_SEC" "$OUT_STEM.transcript" "$JSON" 2>/dev/null || true)"
+  "$REC_ID" "$OUT_STEM" "$(date +%Y-%m-%d)" "$AUDIO_SEC" "$OUT_STEM.transcript" "$JSON" || true)"
 # Non-fatal (the transcript is already written), but never silent: update_index.py
-# refuses to overwrite an unreadable index.json and says why on stderr.
-if [[ -n "$ENTRY" ]]; then
-  python3 "$SKILL_DIR/scripts/update_index.py" upsert "$OUTDIR/.scriba" "$ENTRY" \
-    || echo "WARN: transcript saved, but the corpus index $OUTDIR/.scriba/index.json was not updated (see above)." >&2
+# refuses to overwrite an unreadable index.json and says why on stderr. The note also
+# goes into the final progress line and the notification, since the log is deleted.
+INDEX_NOTE=""
+if [[ -z "$ENTRY" ]] || ! python3 "$SKILL_DIR/scripts/update_index.py" upsert "$OUTDIR/.scriba" "$ENTRY"; then
+  INDEX_NOTE="; corpus index NOT updated"
+  echo "WARN: transcript saved, but the corpus index $OUTDIR/.scriba/index.json was not updated (see above)." >&2
 fi
 
 # Record observed factor — but only on files long enough for the per-audio-second rate
@@ -595,7 +597,7 @@ fi
 
 echo "done" > "$STAGE_FILE"
 cat > "$PROGRESS" <<JSON
-{"stage":"done","stage_sec":0,"elapsed_sec":$EL,"audio_sec":$AUDIO_SEC,"audio_processed_sec":$AUDIO_SEC,"audio_processed_pct":100,"audio_source":"measured","eta_total_sec":$EL,"eta_remaining_sec":0,"pct":100,"warmup_sec":$WARMUP_SEC,"factor":$FACTOR,"eta_source":"$ETA_SOURCE","chip":"$CHIP_LABEL","started_at":$START_TS,"last_log":"transcript ready"}
+{"stage":"done","stage_sec":0,"elapsed_sec":$EL,"audio_sec":$AUDIO_SEC,"audio_processed_sec":$AUDIO_SEC,"audio_processed_pct":100,"audio_source":"measured","eta_total_sec":$EL,"eta_remaining_sec":0,"pct":100,"warmup_sec":$WARMUP_SEC,"factor":$FACTOR,"eta_source":"$ETA_SOURCE","chip":"$CHIP_LABEL","started_at":$START_TS,"last_log":"transcript ready$INDEX_NOTE"}
 JSON
 
 # macOS notification — fires regardless of which terminal/chat launched the run.
@@ -604,7 +606,7 @@ if [[ "${NOTIFY:-1}" != "0" ]] && command -v osascript >/dev/null 2>&1; then
   # Escape for AppleScript: replace any " in the path with ' to avoid breaking the string.
   OSA_SAFE_OUT="${OUT//\"/\'}"
   OSA_SAFE_INPUT="$(basename "$INPUT")"
-  osascript -e "display notification \"$OSA_SAFE_OUT\" with title \"scriba\" subtitle \"$OSA_SAFE_INPUT · $(fmt_time "$EL")\" sound name \"Glass\"" 2>/dev/null || true
+  osascript -e "display notification \"$OSA_SAFE_OUT$INDEX_NOTE\" with title \"scriba\" subtitle \"$OSA_SAFE_INPUT · $(fmt_time "$EL")\" sound name \"Glass\"" 2>/dev/null || true
 fi
 
 # Success path reached → the diagnostic artefacts (log, progress.json) have served
