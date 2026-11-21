@@ -261,3 +261,14 @@ def test_cli_bad_arguments_exit_2(args):
     res = _run_cli(*args)
     assert res.returncode == 2
     assert "usage:" in res.stderr and "Traceback" not in res.stderr
+
+
+def test_upsert_tolerates_chmod_failure(tmp_path, monkeypatch):
+    def no_chmod(path, mode):
+        raise OSError(errno.EPERM, "Operation not permitted")
+
+    monkeypatch.setattr(ui.os, "chmod", no_chmod)
+    scriba = tmp_path / ".scriba"
+    ui.upsert(scriba, _entry("a"))
+    assert json.loads((scriba / "index.json").read_text())["recordings"][0]["id"] == "a"
+    assert not list(scriba.glob("*.tmp"))

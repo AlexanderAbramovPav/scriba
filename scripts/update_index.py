@@ -109,7 +109,10 @@ def upsert(scriba_dir, entry):
             json.dump(data, f, ensure_ascii=False, indent=2)
             f.flush()
             _fsync(f.fileno())
-        os.chmod(tmp, mode)  # mkstemp creates 0600; keep the index's mode
+        try:
+            os.chmod(tmp, mode)  # mkstemp creates 0600; keep the index's mode
+        except OSError:
+            pass  # some mounts reject chmod; a 0600 index beats no update
         os.replace(tmp, idx_path)
     except BaseException:
         try:

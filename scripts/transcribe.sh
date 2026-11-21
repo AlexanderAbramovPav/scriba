@@ -214,11 +214,9 @@ if [[ "${1:-}" == "--status" ]]; then
     TRANSCRIPT_OUT="$(dirname "$IN")/$OUT_STEM_S.transcript/$OUT_STEM_S.md"
     if [[ -f "$TRANSCRIPT_OUT" ]]; then
       INDEX_ERR_S="$(dirname "$TRANSCRIPT_OUT")/index-not-updated.txt"
-      if [[ -f "$INDEX_ERR_S" ]]; then
-        echo "stage=done · transcript: $TRANSCRIPT_OUT · corpus index NOT updated: see $INDEX_ERR_S"
-      else
-        echo "stage=done · transcript: $TRANSCRIPT_OUT"
-      fi
+      # Line 1 stays "stage=done · transcript: <path>": callers read the path to EOL.
+      echo "stage=done · transcript: $TRANSCRIPT_OUT"
+      [[ -f "$INDEX_ERR_S" ]] && echo "WARN: corpus index NOT updated: see $INDEX_ERR_S"
       exit 0
     fi
     echo "no progress file yet at $PROG" >&2
@@ -590,6 +588,7 @@ rm -f "$INDEX_ERR_FILE"
 if [[ -z "$ENTRY" ]]; then
   INDEX_ERR="could not build the index entry for this recording (see the error above)"
 elif ! INDEX_ERR="$(python3 "$SKILL_DIR/scripts/update_index.py" upsert "$OUTDIR/.scriba" "$ENTRY" 2>&1)"; then
+  INDEX_ERR="${INDEX_ERR:-update_index.py failed without a message}"
   echo "$INDEX_ERR" >&2
 else
   INDEX_ERR=""
