@@ -163,7 +163,7 @@ The Markdown points at `data/…` with **relative** paths, so the folder travels
 
 The **folder/file name is meaningful**: it's derived from your video's name (kebab-cased). When the source name is generic (`zoom_0`, `GMT20260605-120000`, `recording`, …), the assistant picks a real title for you. The original filename is always preserved in the `source:` frontmatter field.
 
-Alongside your recordings, a hidden **`.scriba/`** folder holds corpus-wide state your AI uses to navigate everything: `index.json` (one entry per recording — read once, find any meeting), plus the glossary and persistent voiceprints. Full layout in [`references/file-layout.md`](./references/file-layout.md).
+Alongside your recordings, a hidden **`.scriba/`** folder holds corpus-wide state your AI uses to navigate everything: `index.json` (one entry per recording — read once, find any meeting; lock-safe for concurrent transcriptions and rebuildable from existing transcripts via `python3 scripts/update_index.py rebuild <recordings-dir> [--prune] [--dry-run]`), plus the glossary and persistent voiceprints. Full layout in [`references/file-layout.md`](./references/file-layout.md).
 
 ## Beyond one-off meetings — run it automatically
 

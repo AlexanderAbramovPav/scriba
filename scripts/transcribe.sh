@@ -571,13 +571,6 @@ DISPLAY_MODEL="$("$PY" -c 'import json,sys; p=json.load(open(sys.argv[1])).get("
 cp "$JSON" "$DATA_DIR/transcript.json" 2>/dev/null || true
 
 # Corpus index for the AI (hidden .scriba at the recordings root).
-# One python read of the sidecar (was three): pull language + low_confidence_pct and
-# assemble the entry in a single pass; argv6 is the JSON path.
-ENTRY="$(python3 -c "import json,sys
-try: d=json.load(open(sys.argv[6]))
-except Exception: d={}
-print(json.dumps({'id':sys.argv[1],'title':sys.argv[2],'date':sys.argv[3],'lang':d.get('language','auto'),'duration':int(sys.argv[4]),'folder':sys.argv[5],'low_conf_pct':float(d.get('low_confidence_pct',0))}))" \
-  "$REC_ID" "$OUT_STEM" "$(date +%Y-%m-%d)" "$AUDIO_SEC" "$OUT_STEM.transcript" "$JSON" || true)"
 # Non-fatal (the transcript is already written), but never silent: update_index.py
 # refuses to overwrite an unreadable index.json and says why on stderr. The log and
 # progress.json are deleted on success, so the reason is also kept in the recording's
@@ -585,11 +578,12 @@ print(json.dumps({'id':sys.argv[1],'title':sys.argv[2],'date':sys.argv[3],'lang'
 INDEX_NOTE=""; INDEX_ERR=""
 INDEX_ERR_FILE="$REC_DIR/index-not-updated.txt"
 rm -f "$INDEX_ERR_FILE"
-if [[ -z "$ENTRY" ]]; then
-  INDEX_ERR="could not build the index entry for this recording (see the error above)"
-elif ! INDEX_ERR="$(python3 "$SKILL_DIR/scripts/update_index.py" upsert "$OUTDIR/.scriba" "$ENTRY" 2>&1)"; then
+if ! INDEX_ERR="$(python3 "$SKILL_DIR/scripts/update_index.py" record "$OUTDIR/.scriba" \
+  --id="$REC_ID" --title="$OUT_STEM" --date="$(date +%Y-%m-%d)" \
+  --duration="$AUDIO_SEC" --folder="$OUT_STEM.transcript" --json="$JSON" 2>&1)"; then
   INDEX_ERR="${INDEX_ERR:-update_index.py failed without a message}"
   echo "$INDEX_ERR" >&2
+  printf '%s\n' "$INDEX_ERR" >> "$LOG" 2>/dev/null || true
 else
   INDEX_ERR=""
 fi
@@ -597,7 +591,9 @@ if [[ -n "$INDEX_ERR" ]]; then
   INDEX_NOTE="; corpus index NOT updated"
   printf '%s\n' "The corpus index $OUTDIR/.scriba/index.json was not updated for this recording:" "$INDEX_ERR" \
     > "$INDEX_ERR_FILE" 2>/dev/null || true
-  echo "WARN: transcript saved, but the corpus index $OUTDIR/.scriba/index.json was not updated (details: $INDEX_ERR_FILE)." >&2
+  INDEX_WARN="WARN: transcript saved, but the corpus index $OUTDIR/.scriba/index.json was not updated (details: $INDEX_ERR_FILE)."
+  echo "$INDEX_WARN" >&2
+  printf '%s\n' "$INDEX_WARN" >> "$LOG" 2>/dev/null || true
 fi
 
 # Record observed factor — but only on files long enough for the per-audio-second rate
