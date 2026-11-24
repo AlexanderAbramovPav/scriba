@@ -66,9 +66,13 @@ whole folder tree:
 }
 ```
 
-- **Upsert by `id`** — re-transcribing the same recording replaces its entry rather
-  than duplicating it. Writes are **atomic** (temp file + `os.replace`), so a crash
-  mid-write can never corrupt the index.
+- **Upsert by `id` (lock-safe)** — re-transcribing the same recording replaces its entry rather
+  than duplicating it. Updates hold an exclusive `fcntl.flock` lock on `index.lock` next to
+  `index.json` (on POSIX) and write **atomically** (temp file + `os.replace`), so concurrent
+  runs never drop an entry and a crash mid-write can never corrupt the index.
+- **Rebuild from transcripts** — `python3 scripts/update_index.py rebuild <recordings-dir> [--prune] [--dry-run]`
+  reconstructs `.scriba/index.json` from every `*.transcript/<stem>.md` front matter under
+  `<recordings-dir>`, keeping existing entries whose folder is gone unless `--prune` is passed.
 - **An unreadable index is never overwritten.** If `index.json` exists but is not valid
   UTF-8 JSON of the shape above (truncated, empty, edited by hand), `upsert` leaves the
   file untouched, prints the path and the reason to stderr and exits 1. The same applies

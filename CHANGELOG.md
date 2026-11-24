@@ -7,6 +7,13 @@ versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `update_index.py rebuild <recordings-dir> [--prune] [--dry-run]` rebuilds `.scriba/index.json`
+  from every `*.transcript/<stem>.md` front matter below `<recordings-dir>` (keeps entries for
+  missing folders unless `--prune`, previews changes without writing on `--dry-run`, and shares
+  the same lock and unreadable-index refusal as `upsert`).
+- `update_index.py record` (and `build_entry()`) assembles and upserts a recording index entry in
+  one call, replacing the inline `python3 -c` snippet in `transcribe.sh`; indexing failures stay
+  non-fatal and are also written to the transcription log.
 - `transcribe.sh --asr nemotron35`: opt-in NVIDIA Nemotron 3.5 Transcribe backend (NeMo-Speech.cpp
   nightly, 4-bit GGUF) for non-Russian and mixed-language meetings. One pass gives punctuated text,
   word times and speaker tags; the glossary becomes a "Possible terms" instruction. Not a default:
@@ -17,6 +24,9 @@ versioning follows [Semantic Versioning](https://semver.org/).
   ([#6](https://github.com/AlexanderAbramovPav/scriba/discussions/6))
 
 ### Fixed
+- `update_index.py` now holds an exclusive `fcntl.flock` lock on `index.lock` next to `index.json`
+  across the full read-modify-write so concurrent transcriptions never drop entries (platforms
+  without `fcntl` retain the previous unlocked behaviour).
 - `update_index.py upsert` silently replaced an unreadable `.scriba/index.json` (invalid JSON,
   empty file, wrong shape) with a new index holding only the current recording, which dropped
   every earlier entry. It now leaves the file untouched, prints the path and the reason, and
